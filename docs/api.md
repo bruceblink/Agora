@@ -30,6 +30,12 @@
   - [新增通知公告](#post-apisystemnotices)
   - [更新通知公告](#put-apisystemnoticesnoticeid)
   - [删除通知公告](#delete-apisystemnotices)
+  - [查询菜单列表](#get-apisystemmenus)
+  - [菜单详情](#get-apisystemmenusmenuid)
+  - [菜单下拉树](#get-apisystemmenusdropdown)
+  - [新增菜单](#post-apisystemmenus)
+  - [更新菜单](#put-apisystemmenusmenuid)
+  - [删除菜单](#delete-apisystemmenusmenuid)
   - [分页查询字典类型](#get-apisystemdicttypes)
   - [字典类型详情](#get-apisystemdicttypedictid)
   - [新增字典类型](#post-apisystemdicttype)
@@ -487,6 +493,103 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `noticeIds` | number[] | ✓ | 可重复传递，例如 `?noticeIds=1&noticeIds=2` |
+
+---
+
+### GET `/api/system/menus`
+
+查询 Keystone 兼容菜单列表。岗位、部门菜单按当前产品范围不种入。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `isButton` | boolean | 是否只查询按钮权限 |
+
+**响应** `200 OK` → `Vec<MenuDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": [
+    {
+      "id": 1,
+      "parentId": 0,
+      "menuName": "系统管理",
+      "routerName": "",
+      "path": "/system",
+      "rank": 1,
+      "menuType": 2,
+      "menuTypeStr": "目录",
+      "isButton": false,
+      "status": 1,
+      "statusStr": "正常",
+      "createTime": "2022-05-21T08:30:54Z",
+      "icon": "ep:management"
+    }
+  ]
+}
+```
+
+---
+
+### GET `/api/system/menus/{menuId}`
+
+菜单详情，包含 `permission` 与完整 `meta`。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/menus/dropdown`
+
+菜单下拉树，用于新增/编辑菜单时选择父级。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/menus`
+
+新增菜单。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "parentId": 1,
+  "menuName": "示例菜单",
+  "routerName": "Example",
+  "path": "/system/example/index",
+  "status": 1,
+  "menuType": 1,
+  "isButton": false,
+  "permission": "system:example:list",
+  "meta": {
+    "title": "示例菜单",
+    "icon": "ep:menu",
+    "showParent": true
+  }
+}
+```
+
+---
+
+### PUT `/api/system/menus/{menuId}`
+
+更新菜单。与 Keystone 一致，非按钮菜单不允许修改菜单类型；父级不能选择自身。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/menus/{menuId}`
+
+删除菜单。存在子菜单或已分配给角色时会返回请求错误。
+
+**需要认证，仅管理员**
 
 ---
 

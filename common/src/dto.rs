@@ -1,5 +1,5 @@
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
@@ -330,4 +330,103 @@ pub struct UpdateNoticeDTO {
     pub notice_type: String,
     pub notice_content: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuMetaDTO {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_link: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_parent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roles: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_src: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_frame_src_internal: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_icon: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_loading: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_tag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dynamic_level: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuDTO {
+    pub id: i64,
+    pub parent_id: i64,
+    pub menu_name: String,
+    pub router_name: String,
+    pub path: String,
+    pub rank: Option<i32>,
+    pub menu_type: i16,
+    pub menu_type_str: Option<String>,
+    pub is_button: bool,
+    pub status: i16,
+    pub status_str: String,
+    pub create_time: chrono::DateTime<Utc>,
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuDetailDTO {
+    #[serde(flatten)]
+    pub menu: MenuDTO,
+    pub permission: String,
+    pub meta: MenuMetaDTO,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuDropdownDTO {
+    pub id: i64,
+    pub parent_id: i64,
+    pub label: String,
+    pub children: Vec<MenuDropdownDTO>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMenuDTO {
+    pub parent_id: Option<i64>,
+    pub menu_name: String,
+    pub router_name: Option<String>,
+    pub path: Option<String>,
+    pub status: Option<i16>,
+    pub menu_type: Option<i16>,
+    pub is_button: Option<bool>,
+    pub permission: Option<String>,
+    pub meta: Option<MenuMetaDTO>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMenuDTO {
+    pub parent_id: Option<i64>,
+    pub menu_name: String,
+    pub router_name: Option<String>,
+    pub path: Option<String>,
+    pub status: Option<i16>,
+    pub menu_type: Option<i16>,
+    pub is_button: Option<bool>,
+    pub permission: Option<String>,
+    pub meta: Option<MenuMetaDTO>,
 }

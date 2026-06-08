@@ -91,3 +91,9 @@ pub struct NoticeQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuQuery {
+    pub is_button: Option<bool>,
+}

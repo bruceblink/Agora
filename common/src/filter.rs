@@ -138,3 +138,18 @@ pub struct OperationLogQuery {
     pub begin_time: Option<chrono::NaiveDate>,
     pub end_time: Option<chrono::NaiveDate>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobQuery {
+    pub job_name: Option<String>,
+    pub job_group: Option<String>,
+    pub status: Option<i16>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+    pub order_column: Option<String>,
+    pub order_direction: Option<String>,
+    pub begin_time: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveDate>,
+}

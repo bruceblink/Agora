@@ -1,8 +1,12 @@
 use actix_web::web;
+use chrono::Utc;
 use common::TaskFilter;
 use common::po::{ItemResult, QueryPage, TaskItem};
 use common::utils::date_utils::get_today_weekday;
-use infra::{list_all_scheduled_tasks_by_page, update_scheduled_task_runtime, upsert_news_info};
+use infra::{
+    get_scheduled_task_run_config, list_all_scheduled_tasks_by_page, update_scheduled_task_runtime,
+    upsert_news_info,
+};
 use service::timer_task_command::{CmdFn, build_cmd_map};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -116,6 +120,61 @@ impl TaskManager {
 
     pub async fn refresh_config(&self) -> anyhow::Result<()> {
         self.start_or_restart_tasks().await
+    }
+
+    pub fn has_task_command(&self, cmd: &str) -> bool {
+        self.cmd_map.contains_key(cmd)
+    }
+
+    pub async fn run_task_once_by_id(&self, job_id: i64) -> anyhow::Result<()> {
+        let config = get_scheduled_task_run_config(job_id, &self.db_pool).await?;
+        let meta = TaskMeta {
+            name: config.name.clone(),
+            cmd: config.cmd,
+            url: config.url,
+            arg: config.arg,
+            cron_expr: config.cron_expr,
+            retry_times: config.retry_times,
+        };
+        let mut tasks = build_tasks_from_meta(&[meta], &self.cmd_map);
+        let task = tasks
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("任务 [{}] 调用命令未注册", config.name))?;
+        let schedule = task.schedule().map_err(anyhow::Error::msg)?;
+        let next_run = schedule.upcoming(Utc).next();
+        let last_run = Utc::now();
+
+        let mut last_error = None;
+        for _ in 0..=task.retry_times {
+            match task.action.run().await {
+                Ok(resp) => {
+                    update_scheduled_task_runtime(
+                        &task.name,
+                        last_run,
+                        next_run,
+                        "success",
+                        &self.db_pool,
+                    )
+                    .await?;
+
+                    if let Some(item_result) = resp.data {
+                        run_task_service(item_result, Arc::clone(&self.db_pool)).await?;
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        update_scheduled_task_runtime(&task.name, last_run, next_run, "failed", &self.db_pool)
+            .await?;
+        Err(anyhow::anyhow!(
+            "任务 [{}] 执行失败: {}",
+            task.name,
+            last_error.unwrap_or_else(|| "未知错误".to_string())
+        ))
     }
 
     async fn stop_current_scheduler(&self) {

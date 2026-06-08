@@ -12,6 +12,9 @@ use crate::routes::{
 };
 use crate::routes::{get_ani, get_anis};
 use crate::routes::{
+    job_create, job_get, job_run, job_status_update, job_update, jobs_delete, jobs_list,
+};
+use crate::routes::{
     login, logout, news_event_items_get, news_events_get, news_get, news_items_get,
     news_stream_sse, proxy_image, scheduled_tasks_create, scheduled_tasks_delete,
     scheduled_tasks_get, scheduled_tasks_toggle, scheduled_tasks_update, task_reload,
@@ -177,6 +180,13 @@ async fn create_server(
                         .service(role_create)
                         .service(role_update)
                         .service(role_delete)
+                        .service(jobs_list)
+                        .service(job_get)
+                        .service(job_create)
+                        .service(job_update)
+                        .service(job_status_update)
+                        .service(job_run)
+                        .service(jobs_delete)
                         .service(login_logs_list)
                         .service(login_logs_export)
                         .service(login_logs_delete)

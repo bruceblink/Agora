@@ -32,11 +32,32 @@ fn normalize_retry_times(retry_times: i16) -> anyhow::Result<u8> {
         .map_err(|_| anyhow::anyhow!("定时任务重试次数超出范围: {retry_times}"))
 }
 
+fn invoke_target_from_params(params: &serde_json::Value) -> String {
+    let invoke_target = params
+        .get("invokeTarget")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if !invoke_target.trim().is_empty() {
+        return invoke_target.trim().to_string();
+    }
+
+    let cmd = params
+        .get("cmd")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if cmd.trim().is_empty() {
+        String::new()
+    } else {
+        format!("timerTask.{}()", cmd.trim())
+    }
+}
+
 pub async fn list_all_scheduled_tasks(db_pool: &PgPool) -> anyhow::Result<Vec<ScheduledTasksDTO>> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         r#"
             SELECT id, name, cron, params, is_enabled, retry_times, last_run, next_run, last_status, created_at, updated_at
             FROM scheduled_tasks
+            WHERE deleted = FALSE
           "#,
     );
 
@@ -86,7 +107,7 @@ pub async fn list_all_scheduled_tasks_by_page(
         r#"
             SELECT id, name, cron, params, is_enabled, retry_times, last_run, next_run, last_status, created_at, updated_at, COUNT(*) OVER() as total_count
             FROM scheduled_tasks
-            WHERE 1 = 1
+            WHERE deleted = FALSE
           "#,
     );
 
@@ -178,8 +199,11 @@ pub async fn create_scheduled_task(
 ) -> anyhow::Result<ScheduledTasksDTO> {
     let row: ScheduledTasks = sqlx::query_as(
         r#"
-        INSERT INTO scheduled_tasks (name, cron, params, is_enabled, retry_times, last_status)
-        VALUES ($1, $2, $3, $4, $5, 'pending')
+        INSERT INTO scheduled_tasks (
+            name, cron, params, is_enabled, retry_times, last_status,
+            job_group, invoke_target, concurrent, status, remark, deleted
+        )
+        VALUES ($1, $2, $3, $4, $5, 'pending', 'DEFAULT', $6, 0, $7, '', FALSE)
         RETURNING id, name, cron, params, is_enabled, retry_times, last_run, next_run, last_status, created_at, updated_at
         "#,
     )
@@ -188,6 +212,8 @@ pub async fn create_scheduled_task(
     .bind(&data.params)
     .bind(data.is_enabled)
     .bind(data.retry_times as i16)
+    .bind(invoke_target_from_params(&data.params))
+    .bind(if data.is_enabled { 1_i16 } else { 0_i16 })
     .fetch_one(db_pool)
     .await
     .map_err(|e| {
@@ -222,8 +248,10 @@ pub async fn update_scheduled_task(
             cron        = COALESCE($3, cron),
             params      = COALESCE($4, params),
             retry_times = COALESCE($5, retry_times),
+            invoke_target = COALESCE($6, invoke_target),
             updated_at  = NOW()
         WHERE id = $1
+          AND deleted = FALSE
         RETURNING id, name, cron, params, is_enabled, retry_times, last_run, next_run, last_status, created_at, updated_at
         "#,
     )
@@ -232,6 +260,7 @@ pub async fn update_scheduled_task(
     .bind(&data.cron)
     .bind(&data.params)
     .bind(data.retry_times.map(|r| r as i16))
+    .bind(data.params.as_ref().map(invoke_target_from_params))
     .fetch_one(db_pool)
     .await
     .map_err(|e| {
@@ -259,10 +288,18 @@ pub async fn toggle_scheduled_task(
     db_pool: &PgPool,
 ) -> anyhow::Result<()> {
     let rows_affected = sqlx::query(
-        r#"UPDATE scheduled_tasks SET is_enabled = $2, updated_at = NOW() WHERE id = $1"#,
+        r#"
+        UPDATE scheduled_tasks
+        SET is_enabled = $2,
+            status = $3,
+            updated_at = NOW()
+        WHERE id = $1
+          AND deleted = FALSE
+        "#,
     )
     .bind(id)
     .bind(data.is_enabled)
+    .bind(if data.is_enabled { 1_i16 } else { 0_i16 })
     .execute(db_pool)
     .await
     .map_err(|e| {
@@ -314,6 +351,7 @@ pub async fn update_scheduled_task_runtime(
             last_status = $4,
             updated_at = NOW()
         WHERE name = $1
+          AND deleted = FALSE
         "#,
     )
     .bind(name)
@@ -337,7 +375,8 @@ pub async fn update_scheduled_task_runtime(
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_retry_times;
+    use super::{invoke_target_from_params, normalize_retry_times};
+    use serde_json::json;
 
     #[test]
     fn normalize_retry_times_accepts_u8_range() {
@@ -349,5 +388,19 @@ mod tests {
     fn normalize_retry_times_rejects_invalid_values() {
         assert!(normalize_retry_times(-1).is_err());
         assert!(normalize_retry_times(256).is_err());
+    }
+
+    #[test]
+    fn invoke_target_from_params_prefers_explicit_target() {
+        assert_eq!(
+            invoke_target_from_params(
+                &json!({"cmd": "fetch_all_news", "invokeTarget": "timerTask.custom()"})
+            ),
+            "timerTask.custom()"
+        );
+        assert_eq!(
+            invoke_target_from_params(&json!({"cmd": "fetch_all_news"})),
+            "timerTask.fetch_all_news()"
+        );
     }
 }

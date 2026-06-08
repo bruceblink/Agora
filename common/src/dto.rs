@@ -540,3 +540,49 @@ pub struct AddOperationLogDTO {
     pub error_stack: Option<String>,
     pub operation_time: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct JobDTO {
+    pub job_id: i64,
+    pub job_name: String,
+    pub job_group: String,
+    pub invoke_target: String,
+    pub cron_expression: String,
+    pub concurrent: i16,
+    pub concurrent_str: String,
+    pub status: i16,
+    pub status_str: String,
+    pub remark: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateJobDTO {
+    pub job_name: String,
+    pub job_group: String,
+    pub invoke_target: String,
+    pub cron_expression: String,
+    pub concurrent: i16,
+    pub status: i16,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateJobDTO {
+    pub job_name: String,
+    pub job_group: String,
+    pub invoke_target: String,
+    pub cron_expression: String,
+    pub concurrent: i16,
+    pub status: i16,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateJobStatusDTO {
+    pub status: i16,
+}

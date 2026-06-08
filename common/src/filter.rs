@@ -107,3 +107,34 @@ pub struct RoleQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginLogQuery {
+    pub ip_address: Option<String>,
+    pub status: Option<String>,
+    pub username: Option<String>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+    pub order_column: Option<String>,
+    pub order_direction: Option<String>,
+    pub begin_time: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationLogQuery {
+    pub business_type: Option<String>,
+    pub status: Option<String>,
+    pub username: Option<String>,
+    pub request_module: Option<String>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+    pub order_column: Option<String>,
+    pub order_direction: Option<String>,
+    pub begin_time: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveDate>,
+}

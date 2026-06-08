@@ -483,3 +483,60 @@ pub struct UpdateRoleDataScopeDTO {
     pub dept_ids: Vec<i64>,
     pub data_scope: Option<i16>,
 }
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginLogDTO {
+    pub log_id: String,
+    pub username: String,
+    pub ip_address: String,
+    pub login_location: String,
+    pub operation_system: String,
+    pub browser: String,
+    pub status: i16,
+    pub status_str: String,
+    pub msg: String,
+    pub login_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationLogDTO {
+    pub operation_id: i64,
+    pub business_type: i16,
+    pub business_type_str: String,
+    pub request_method: String,
+    pub request_module: String,
+    pub request_url: String,
+    pub called_method: String,
+    pub operator_type: i16,
+    pub operator_type_str: String,
+    pub user_id: Option<i64>,
+    pub username: Option<String>,
+    pub operator_ip: Option<String>,
+    pub operator_location: Option<String>,
+    pub dept_id: Option<i64>,
+    pub dept_name: Option<String>,
+    pub operation_param: Option<String>,
+    pub operation_result: Option<String>,
+    pub status: i16,
+    pub status_str: String,
+    pub error_stack: Option<String>,
+    pub operation_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddOperationLogDTO {
+    pub business_type: Option<i16>,
+    pub request_method: Option<i16>,
+    pub request_module: Option<String>,
+    pub request_url: Option<String>,
+    pub called_method: Option<String>,
+    pub operator_type: Option<i16>,
+    pub operation_param: Option<String>,
+    pub operation_result: Option<String>,
+    pub status: Option<i16>,
+    pub error_stack: Option<String>,
+    pub operation_time: Option<String>,
+}

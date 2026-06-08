@@ -1,8 +1,9 @@
 use crate::common::AppState;
-use actix_web::{HttpResponse, Responder, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 use common::api::ApiResponse;
 use common::utils::{CommonUser, generate_jwt, generate_refresh_token};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
+use infra::{build_login_log, record_login_info};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
@@ -21,6 +22,28 @@ fn token_window_days(
         })
 }
 
+fn request_ip(req: &HttpRequest) -> String {
+    req.connection_info()
+        .realip_remote_addr()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn user_agent(req: &HttpRequest) -> String {
+    req.headers()
+        .get("user-agent")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+async fn record_register_log(app_state: &web::Data<AppState>, req: &HttpRequest, username: &str) {
+    let log = build_login_log(username, &request_ip(req), &user_agent(req), 3, "注册");
+    if let Err(e) = record_login_info(&log, &app_state.db_pool).await {
+        tracing::warn!("写入注册日志失败: {e}");
+    }
+}
+
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub username: String,      // 用户名
@@ -37,6 +60,7 @@ struct RegisterResponse {
 #[post("/register")]
 pub async fn register(
     app_state: web::Data<AppState>,
+    req: HttpRequest,
     body: web::Json<RegisterRequest>,
 ) -> impl Responder {
     let username = body.username.trim();
@@ -176,6 +200,8 @@ pub async fn register(
                     .same_site(actix_web::cookie::SameSite::None)
                     .max_age(time::Duration::days(refresh_token_days))
                     .finish();
+
+            record_register_log(&app_state, &req, username).await;
 
             HttpResponse::Created()
                 .cookie(access_cookie)

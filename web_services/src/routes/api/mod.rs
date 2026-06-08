@@ -1,4 +1,5 @@
 mod anis;
+mod logs;
 #[allow(hidden_glob_reexports)]
 mod me;
 mod news;
@@ -9,6 +10,7 @@ mod sync;
 mod system;
 
 pub use anis::*;
+pub use logs::*;
 pub use me::*;
 pub use news::*;
 pub use proxy::*;

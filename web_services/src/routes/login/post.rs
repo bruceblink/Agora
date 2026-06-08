@@ -3,8 +3,9 @@ use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 use chrono::Utc;
 use common::api::{ApiError, ApiResponse};
-use common::utils::{CommonUser, generate_jwt, generate_refresh_token};
+use common::utils::{CommonUser, generate_jwt, generate_refresh_token, verify_jwt};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
+use infra::{build_login_log, record_login_info};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -21,6 +22,49 @@ fn token_window_days(
             tracing::error!("token 配置缺失: {token_key}");
             ApiError::Internal("token 配置缺失".into())
         })
+}
+
+fn request_ip(req: &HttpRequest) -> String {
+    req.connection_info()
+        .realip_remote_addr()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn user_agent(req: &HttpRequest) -> String {
+    req.headers()
+        .get("user-agent")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn login_identity(req: &LoginRequest) -> String {
+    req.username
+        .as_deref()
+        .or(req.email.as_deref())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+async fn record_login_attempt(
+    app_state: &web::Data<AppState>,
+    http_req: &HttpRequest,
+    username: &str,
+    status: i16,
+    msg: &str,
+) {
+    let log = build_login_log(
+        username,
+        &request_ip(http_req),
+        &user_agent(http_req),
+        status,
+        msg,
+    );
+    if let Err(e) = record_login_info(&log, &app_state.db_pool).await {
+        tracing::warn!("写入登录日志失败: {e}");
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,10 +88,19 @@ struct LoginUser {
 #[post("/login")]
 async fn login(
     app_state: web::Data<AppState>,
+    http_req: HttpRequest,
     body: web::Json<LoginRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = body.into_inner();
     if req.password.len() < 8 {
+        record_login_attempt(
+            &app_state,
+            &http_req,
+            &login_identity(&req),
+            0,
+            "用户名/邮箱或密码错误",
+        )
+        .await;
         return Err(ApiError::InvalidData("用户名/邮箱或密码错误".into()));
     }
 
@@ -63,10 +116,12 @@ async fn login(
         .filter(|s| !s.is_empty());
 
     if username.is_none() && email.is_none() {
+        record_login_attempt(&app_state, &http_req, "", 0, "请提供 username 或 email").await;
         return Err(ApiError::InvalidData("请提供 username 或 email".into()));
     }
 
-    let user = sqlx::query_as::<_, LoginUser>(
+    let attempted_username = login_identity(&req);
+    let user = match sqlx::query_as::<_, LoginUser>(
         r#"
             SELECT id, email, username, password, avatar_url, token_version, status
             FROM user_info
@@ -80,13 +135,27 @@ async fn login(
     .bind(email)
     .fetch_optional(&app_state.db_pool)
     .await
-    .map_err(|e| {
-        tracing::error!("查询登录用户失败: {e}");
-        ApiError::Internal("服务器内部错误".into())
-    })?
-    .ok_or_else(|| ApiError::Unauthorized("用户名/邮箱或密码错误".into()))?;
+    {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            record_login_attempt(
+                &app_state,
+                &http_req,
+                &attempted_username,
+                0,
+                "用户名/邮箱或密码错误",
+            )
+            .await;
+            return Err(ApiError::Unauthorized("用户名/邮箱或密码错误".into()));
+        }
+        Err(e) => {
+            tracing::error!("查询登录用户失败: {e}");
+            return Err(ApiError::Internal("服务器内部错误".into()));
+        }
+    };
 
     if user.status != "active" {
+        record_login_attempt(&app_state, &http_req, &user.username, 0, "账号不可用").await;
         return Err(ApiError::Forbidden("账号不可用".into()));
     }
 
@@ -96,6 +165,14 @@ async fn login(
     })?;
 
     if !verify_ok {
+        record_login_attempt(
+            &app_state,
+            &http_req,
+            &user.username,
+            0,
+            "用户名/邮箱或密码错误",
+        )
+        .await;
         return Err(ApiError::Unauthorized("用户名/邮箱或密码错误".into()));
     }
 
@@ -158,6 +235,8 @@ async fn login(
         ApiError::Internal("服务器内部错误".into())
     })?;
 
+    record_login_attempt(&app_state, &http_req, &user.username, 1, "登录成功").await;
+
     let is_prod = app_state.configuration.is_production;
     let access_cookie = Cookie::build(ACCESS_TOKEN, access_token.token.clone())
         .http_only(true)
@@ -184,6 +263,12 @@ async fn login(
 
 #[post("/logout")]
 async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let username = req
+        .get_access_token()
+        .and_then(|token| verify_jwt(&token).ok())
+        .map(|claims| claims.sub)
+        .unwrap_or_default();
+
     if let Some(refresh_token) = req.get_refresh_token() {
         if let Err(e) = sqlx::query(
             r#"
@@ -213,6 +298,8 @@ async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Respon
 
     let access_cookie = expired_cookie("access_token".to_string());
     let refresh_cookie = expired_cookie("refresh_token".to_string());
+
+    record_login_attempt(&app_state, &req, &username, 2, "退出成功").await;
 
     HttpResponse::NoContent()
         .cookie(access_cookie)

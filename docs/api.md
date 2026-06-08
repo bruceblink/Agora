@@ -55,6 +55,14 @@
   - [新增字典数据](#post-apisystemdictdata)
   - [更新字典数据](#put-apisystemdictdatadictcode)
   - [删除字典数据](#delete-apisystemdictdatadictcode)
+- [日志管理](#日志管理)
+  - [分页查询登录日志](#get-apilogsloginlogs)
+  - [导出登录日志](#get-apilogsloginlogsexcel)
+  - [删除登录日志](#delete-apilogsloginlogs)
+  - [分页查询操作日志](#get-apilogsoperationlogs)
+  - [新增操作日志](#post-apilogsoperationlogs)
+  - [导出操作日志](#get-apilogsoperationlogsexcel)
+  - [删除操作日志](#delete-apilogsoperationlogs)
 - [番剧信息](#番剧信息)
   - [分页查询番剧列表](#get-apianis)
   - [查询单条番剧](#get-apianisid)
@@ -873,6 +881,186 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 删除字典数据。
 
 **需要认证，仅管理员**
+
+---
+
+## 日志管理
+
+### GET `/api/logs/loginLogs`
+
+分页查询 Keystone 兼容登录日志。`pageNum` 与 `page` 都可作为页码参数，未传时默认第 1 页、每页 10 条。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数，最大 500 | 10 |
+| `ipAddress` | string | 登录 IP，模糊匹配 | — |
+| `status` | string | `1`=登录成功 / `2`=退出成功 / `3`=注册 / `0`=登录失败 | — |
+| `username` | string | 用户名，模糊匹配 | — |
+| `beginTime` | date | 起始日期，格式 `YYYY-MM-DD` | — |
+| `endTime` | date | 截止日期，格式 `YYYY-MM-DD` | — |
+| `orderColumn` | string | 排序字段，例如 `loginTime` | — |
+| `orderDirection` | string | `ascending` / `descending` | `descending` |
+
+**响应** `200 OK` → `PageData<LoginLogDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "items": [
+      {
+        "logId": "415",
+        "username": "admin",
+        "ipAddress": "127.0.0.1",
+        "loginLocation": "内网IP",
+        "operationSystem": "Mac OS X",
+        "browser": "Chrome",
+        "status": 1,
+        "statusStr": "登录成功",
+        "msg": "登录成功",
+        "loginTime": "2023-06-29T22:49:37Z"
+      }
+    ],
+    "totalCount": 3,
+    "page": 1,
+    "pageSize": 10,
+    "totalPages": 1
+  }
+}
+```
+
+本地 `/login` 成功/失败、`/logout` 和 `/register` 成功会写入该表。
+
+---
+
+### GET `/api/logs/loginLogs/excel`
+
+导出登录日志。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/logs/loginLogs`
+
+软删除登录日志。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `ids` | number[] | ✓ | 可重复传递，例如 `?ids=415&ids=416` |
+
+---
+
+### GET `/api/logs/operationLogs`
+
+分页查询 Keystone 兼容操作日志。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数，最大 500 | 10 |
+| `businessType` | string | 业务类型：`0`其它、`1`新增、`2`修改、`3`删除、`4`授权、`5`导出、`6`导入、`7`强退、`8`清空 | — |
+| `status` | string | `1`=成功 / `0`=失败 | — |
+| `username` | string | 操作用户名，模糊匹配 | — |
+| `requestModule` | string | 请求模块，模糊匹配 | — |
+| `beginTime` | date | 起始日期，格式 `YYYY-MM-DD` | — |
+| `endTime` | date | 截止日期，格式 `YYYY-MM-DD` | — |
+| `orderColumn` | string | 排序字段，例如 `operationTime` | — |
+| `orderDirection` | string | `ascending` / `descending` | `descending` |
+
+**响应** `200 OK` → `PageData<OperationLogDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "items": [
+      {
+        "operationId": 561,
+        "businessType": 1,
+        "businessTypeStr": "添加",
+        "requestMethod": "POST",
+        "requestModule": "菜单管理",
+        "requestUrl": "/system/menus",
+        "calledMethod": "app.keystone.admin.controller.system.SysMenuController.add()",
+        "operatorType": 1,
+        "operatorTypeStr": "其他",
+        "userId": 0,
+        "username": "admin",
+        "operatorIp": "127.0.0.1",
+        "operatorLocation": "内网IP",
+        "deptId": 0,
+        "deptName": "",
+        "operationParam": "{\"menuName\":\"\"}",
+        "operationResult": "",
+        "status": 1,
+        "statusStr": "成功",
+        "errorStack": "",
+        "operationTime": "2023-07-22T17:06:57Z"
+      }
+    ],
+    "totalCount": 1,
+    "page": 1,
+    "pageSize": 10,
+    "totalPages": 1
+  }
+}
+```
+
+---
+
+### POST `/api/logs/operationLogs`
+
+客户端主动写入操作日志。未传 `requestMethod` / `requestUrl` / `operatorType` / `status` 时，会使用当前请求的 HTTP 方法、路径、Web 用户类型和成功状态作为默认值。`deptId` / `deptName` 是 Keystone 兼容回显字段，当前不接入部门模块。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "businessType": 1,
+  "requestModule": "菜单管理",
+  "calledMethod": "frontend.audit.createMenu",
+  "operationParam": "{\"menuName\":\"示例菜单\"}",
+  "operationResult": "",
+  "status": 1,
+  "operationTime": "2026-06-09 10:11:12"
+}
+```
+
+---
+
+### GET `/api/logs/operationLogs/excel`
+
+导出操作日志。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/logs/operationLogs`
+
+软删除操作日志。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `operationIds` | number[] | ✓ | 可重复传递，例如 `?operationIds=561&operationIds=562` |
 
 ---
 

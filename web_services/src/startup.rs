@@ -16,6 +16,10 @@ use crate::routes::{
     news_stream_sse, proxy_image, scheduled_tasks_create, scheduled_tasks_delete,
     scheduled_tasks_get, scheduled_tasks_toggle, scheduled_tasks_update, task_reload,
 };
+use crate::routes::{
+    login_logs_delete, login_logs_export, login_logs_list, operation_log_create,
+    operation_logs_delete, operation_logs_export, operation_logs_list,
+};
 use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
 use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_update, menus_list};
 use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
@@ -173,6 +177,13 @@ async fn create_server(
                         .service(role_create)
                         .service(role_update)
                         .service(role_delete)
+                        .service(login_logs_list)
+                        .service(login_logs_export)
+                        .service(login_logs_delete)
+                        .service(operation_logs_list)
+                        .service(operation_logs_export)
+                        .service(operation_log_create)
+                        .service(operation_logs_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

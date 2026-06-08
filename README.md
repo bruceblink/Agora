@@ -82,6 +82,8 @@ agora/
 | `sys_config` | 系统参数配置，兼容 Keystone 的 `configKey` / `configValue` 管理模型 |
 | `sys_notice` | 通知公告，兼容 Keystone 的公告列表、详情、增删改模型 |
 | `sys_menu` | 菜单权限，兼容 Keystone 的菜单列表、详情、下拉树和增删改模型 |
+| `sys_login_info` | 登录日志，兼容 Keystone 的登录/退出/注册状态记录 |
+| `sys_operation_log` | 操作日志，兼容 Keystone 的操作类型、请求方式和操作者信息 |
 
 ### 通用
 

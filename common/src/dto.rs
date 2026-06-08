@@ -281,3 +281,23 @@ pub struct UpdateDictDataDTO {
     pub status: i16,
     pub remark: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemConfigDTO {
+    pub config_id: String,
+    pub config_name: String,
+    pub config_key: String,
+    pub config_value: String,
+    pub config_options: Vec<String>,
+    pub is_allow_change: i16,
+    pub is_allow_change_str: String,
+    pub remark: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSystemConfigDTO {
+    pub config_value: String,
+}

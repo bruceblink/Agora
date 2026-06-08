@@ -71,3 +71,13 @@ pub struct DictDataQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemConfigQuery {
+    pub config_name: Option<String>,
+    pub config_key: Option<String>,
+    pub is_allow_change: Option<bool>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}

@@ -21,6 +21,10 @@
   - [保存用户配置](#post-apisyncme)
 - [系统配置 / 字典](#系统配置--字典)
   - [获取登录配置与字典](#get-getconfig)
+  - [分页查询系统配置](#get-apisystemconfigs)
+  - [系统配置详情](#get-apisystemconfigconfigid)
+  - [更新系统配置](#put-apisystemconfigconfigid)
+  - [刷新系统配置缓存](#delete-apisystemconfigscache)
   - [分页查询字典类型](#get-apisystemdicttypes)
   - [字典类型详情](#get-apisystemdicttypedictid)
   - [新增字典类型](#post-apisystemdicttype)
@@ -313,6 +317,81 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
   }
 }
 ```
+
+---
+
+### GET `/api/system/configs`
+
+分页查询系统参数配置。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `configName` | string | 配置名称，模糊匹配 | — |
+| `configKey` | string | 配置键名，精确匹配 | — |
+| `isAllowChange` | boolean | 是否允许修改 | — |
+
+**响应** `200 OK` → `PageData<SystemConfigDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "items": [
+      {
+        "configId": "4",
+        "configName": "账号自助-验证码开关",
+        "configKey": "sys.account.captchaOnOff",
+        "configValue": "false",
+        "configOptions": ["true", "false"],
+        "isAllowChange": 0,
+        "isAllowChangeStr": "否",
+        "remark": "是否开启验证码功能（true开启，false关闭）",
+        "createTime": "2026-06-08T13:00:00Z"
+      }
+    ],
+    "totalCount": 5,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+---
+
+### GET `/api/system/config/{configId}`
+
+系统配置详情。
+
+**需要认证，仅管理员**
+
+---
+
+### PUT `/api/system/config/{configId}`
+
+更新系统配置值。`configValue` 不能为空；若该配置存在 `configOptions`，值必须在候选项内。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "configValue": "true"
+}
+```
+
+---
+
+### DELETE `/api/system/configs/cache`
+
+刷新系统配置缓存。Agora 当前未启用本地配置缓存，该接口保留为 Keystone 兼容 no-op。
+
+**需要认证，仅管理员**
 
 ---
 

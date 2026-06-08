@@ -32,7 +32,7 @@ agora/
 
 ## 数据库设计
 
-数据库使用 PostgreSQL，通过 `migrations/` 下的 sqlx 迁移脚本管理，共 **23 张表**，分为以下几个业务域：
+数据库使用 PostgreSQL，通过 `migrations/` 下的 sqlx 迁移脚本管理，共 **24 张表**，分为以下几个业务域：
 
 ### 番剧 / 视频
 
@@ -78,6 +78,7 @@ agora/
 | --- | --- |
 | `sys_dict_type` | 字典类型，兼容 Keystone 的 `dictType` 管理模型 |
 | `sys_dict_data` | 字典数据，提供 `dictLabel` / `dictValue` / `listClass` 等前端回显字段 |
+| `sys_config` | 系统参数配置，兼容 Keystone 的 `configKey` / `configValue` 管理模型 |
 
 ### 通用
 

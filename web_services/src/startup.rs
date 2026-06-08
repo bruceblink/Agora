@@ -17,6 +17,9 @@ use crate::routes::{
     scheduled_tasks_get, scheduled_tasks_toggle, scheduled_tasks_update, task_reload,
 };
 use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
+use crate::routes::{
+    system_config_cache_refresh, system_config_get, system_config_update, system_configs_list,
+};
 use actix_web::dev::Server;
 use actix_web::{App, HttpServer, web};
 use anyhow::{Context, Result};
@@ -141,6 +144,10 @@ async fn create_server(
                         .service(dict_data_create)
                         .service(dict_data_update)
                         .service(dict_data_delete)
+                        .service(system_configs_list)
+                        .service(system_config_get)
+                        .service(system_config_update)
+                        .service(system_config_cache_refresh)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

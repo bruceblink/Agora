@@ -413,6 +413,7 @@ pub async fn delete_dict_data(dict_code: i64, db_pool: &PgPool) -> anyhow::Resul
 }
 
 pub async fn get_config(db_pool: &PgPool) -> anyhow::Result<ConfigDTO> {
+    let is_captcha_on = crate::is_captcha_on(db_pool).await?;
     let type_rows: Vec<(String,)> = sqlx::query_as(
         r#"
         SELECT dict_type
@@ -426,7 +427,7 @@ pub async fn get_config(db_pool: &PgPool) -> anyhow::Result<ConfigDTO> {
 
     if type_rows.is_empty() {
         return Ok(ConfigDTO {
-            is_captcha_on: false,
+            is_captcha_on,
             dictionary: BTreeMap::new(),
         });
     }
@@ -468,7 +469,7 @@ pub async fn get_config(db_pool: &PgPool) -> anyhow::Result<ConfigDTO> {
     }
 
     Ok(ConfigDTO {
-        is_captcha_on: false,
+        is_captcha_on,
         dictionary,
     })
 }

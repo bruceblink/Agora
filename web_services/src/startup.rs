@@ -5,6 +5,11 @@ use crate::routes::{
     ani_collect_create, ani_collect_delete, ani_collect_list, ani_collect_watched, health, index,
 };
 use crate::routes::{auth_github_callback, auth_github_login, auth_token_refresh};
+use crate::routes::{
+    dict_data_by_type, dict_data_create, dict_data_delete, dict_data_get, dict_data_list,
+    dict_data_update, dict_type_create, dict_type_delete, dict_type_get, dict_type_update,
+    dict_types_list, get_config_public,
+};
 use crate::routes::{get_ani, get_anis};
 use crate::routes::{
     login, logout, news_event_items_get, news_events_get, news_get, news_items_get,
@@ -107,6 +112,7 @@ async fn create_server(
             .service(logout)
             .service(register)
             .service(auth_token_refresh)
+            .service(get_config_public)
             // SSE 公开接口（无需认证，供落地页实时新闻使用）
             // 需要认证的 API 路由
             .service(
@@ -124,6 +130,17 @@ async fn create_server(
                         .service(scheduled_tasks_update)
                         .service(scheduled_tasks_toggle)
                         .service(scheduled_tasks_delete)
+                        .service(dict_types_list)
+                        .service(dict_type_get)
+                        .service(dict_type_create)
+                        .service(dict_type_update)
+                        .service(dict_type_delete)
+                        .service(dict_data_list)
+                        .service(dict_data_by_type)
+                        .service(dict_data_get)
+                        .service(dict_data_create)
+                        .service(dict_data_update)
+                        .service(dict_data_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

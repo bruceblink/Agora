@@ -51,3 +51,23 @@ pub struct NewsEventFilter {
     pub event_date: Option<String>,
     pub status: Option<i16>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictTypeQuery {
+    pub dict_name: Option<String>,
+    pub dict_type: Option<String>,
+    pub status: Option<i16>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictDataQuery {
+    pub dict_type: Option<String>,
+    pub dict_label: Option<String>,
+    pub status: Option<i16>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}

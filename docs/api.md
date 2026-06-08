@@ -19,6 +19,19 @@
   - [获取当前用户信息](#get-apime)
   - [获取用户配置](#get-apisyncme)
   - [保存用户配置](#post-apisyncme)
+- [系统配置 / 字典](#系统配置--字典)
+  - [获取登录配置与字典](#get-getconfig)
+  - [分页查询字典类型](#get-apisystemdicttypes)
+  - [字典类型详情](#get-apisystemdicttypedictid)
+  - [新增字典类型](#post-apisystemdicttype)
+  - [更新字典类型](#put-apisystemdicttypedictid)
+  - [删除字典类型](#delete-apisystemdicttypedictid)
+  - [分页查询字典数据](#get-apisystemdictdatalist)
+  - [按类型查询字典数据](#get-apisystemdictdatatypedicttype)
+  - [字典数据详情](#get-apisystemdictdatadictcode)
+  - [新增字典数据](#post-apisystemdictdata)
+  - [更新字典数据](#put-apisystemdictdatadictcode)
+  - [删除字典数据](#delete-apisystemdictdatadictcode)
 - [番剧信息](#番剧信息)
   - [分页查询番剧列表](#get-apianis)
   - [查询单条番剧](#get-apianisid)
@@ -273,6 +286,168 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
   "data": "数据同步成功"
 }
 ```
+
+---
+
+## 系统配置 / 字典
+
+### GET `/getConfig`
+
+获取登录页配置与 Keystone 兼容字典聚合。
+
+**无需认证**
+
+**响应** `200 OK`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "isCaptchaOn": false,
+    "dictionary": {
+      "common.yesOrNo": [
+        { "label": "是", "value": 1, "cssTag": "" },
+        { "label": "否", "value": 0, "cssTag": "danger" }
+      ]
+    }
+  }
+}
+```
+
+---
+
+### GET `/api/system/dict/types`
+
+分页查询字典类型。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `dictName` | string | 字典名称，模糊匹配 | — |
+| `dictType` | string | 字典类型，模糊匹配 | — |
+| `status` | number | `1`=正常 / `0`=停用 | — |
+
+**响应** `200 OK` → `PageData<DictTypeDTO>`
+
+---
+
+### GET `/api/system/dict/type/{dictId}`
+
+字典类型详情。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/dict/type`
+
+新增字典类型。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "dictName": "任务状态",
+  "dictType": "sysJob.status",
+  "status": 1,
+  "remark": "任务状态列表"
+}
+```
+
+---
+
+### PUT `/api/system/dict/type/{dictId}`
+
+更新字典类型。若 `dictType` 变更，会同步更新对应字典数据的 `dictType`。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/dict/type/{dictId}`
+
+删除字典类型。若该类型下仍存在字典数据，将返回请求错误。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/dict/data/list`
+
+分页查询字典数据。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `dictType` | string | 字典类型，精确匹配 | — |
+| `dictLabel` | string | 字典标签，模糊匹配 | — |
+| `status` | number | `1`=正常 / `0`=停用 | — |
+
+**响应** `200 OK` → `PageData<DictDataDTO>`
+
+---
+
+### GET `/api/system/dict/data/type/{dictType}`
+
+按字典类型查询字典数据，供前端下拉框使用。
+
+**需要认证**
+
+---
+
+### GET `/api/system/dict/data/{dictCode}`
+
+字典数据详情。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/dict/data`
+
+新增字典数据。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "dictType": "sysJob.status",
+  "dictLabel": "正常",
+  "dictValue": "1",
+  "dictSort": 1,
+  "isDefault": 0,
+  "cssClass": null,
+  "listClass": "",
+  "status": 1,
+  "remark": "任务正常"
+}
+```
+
+---
+
+### PUT `/api/system/dict/data/{dictCode}`
+
+更新字典数据。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/dict/data/{dictCode}`
+
+删除字典数据。
+
+**需要认证，仅管理员**
 
 ---
 

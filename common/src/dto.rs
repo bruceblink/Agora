@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -184,4 +185,99 @@ pub struct NewsEventDTO {
     pub status: i16,
     pub parent_event_id: Option<i64>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Keystone-compatible dictionary type response.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DictTypeDTO {
+    pub dict_id: i64,
+    pub dict_name: String,
+    pub dict_type: String,
+    pub status: i16,
+    pub remark: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+/// Keystone-compatible dictionary data response.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DictDataDTO {
+    pub dict_code: i64,
+    pub dict_type: String,
+    pub dict_label: String,
+    pub dict_value: String,
+    pub dict_sort: i32,
+    pub is_default: i16,
+    pub css_class: Option<String>,
+    pub list_class: Option<String>,
+    pub status: i16,
+    pub remark: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+/// Compact dictionary value used by Keystone's /getConfig response.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryDataDTO {
+    pub label: String,
+    pub value: i32,
+    pub css_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigDTO {
+    pub is_captcha_on: bool,
+    pub dictionary: BTreeMap<String, Vec<DictionaryDataDTO>>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDictTypeDTO {
+    pub dict_name: String,
+    pub dict_type: String,
+    pub status: i16,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDictTypeDTO {
+    pub dict_name: String,
+    pub dict_type: String,
+    pub status: i16,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDictDataDTO {
+    pub dict_type: String,
+    pub dict_label: String,
+    pub dict_value: String,
+    #[serde(default)]
+    pub dict_sort: i32,
+    #[serde(default)]
+    pub is_default: i16,
+    pub css_class: Option<String>,
+    pub list_class: Option<String>,
+    pub status: i16,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDictDataDTO {
+    pub dict_type: String,
+    pub dict_label: String,
+    pub dict_value: String,
+    #[serde(default)]
+    pub dict_sort: i32,
+    #[serde(default)]
+    pub is_default: i16,
+    pub css_class: Option<String>,
+    pub list_class: Option<String>,
+    pub status: i16,
+    pub remark: Option<String>,
 }

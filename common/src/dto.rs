@@ -430,3 +430,56 @@ pub struct UpdateMenuDTO {
     pub permission: Option<String>,
     pub meta: Option<MenuMetaDTO>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleDTO {
+    pub role_id: i64,
+    pub role_name: String,
+    pub role_key: String,
+    pub role_sort: i32,
+    pub status: i16,
+    pub remark: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+    pub data_scope: i16,
+    pub selected_menu_list: Vec<i64>,
+    pub selected_dept_list: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRoleDTO {
+    pub role_name: String,
+    pub role_key: String,
+    pub role_sort: i32,
+    pub remark: Option<String>,
+    pub data_scope: Option<String>,
+    pub status: Option<String>,
+    pub menu_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRoleDTO {
+    pub role_id: i64,
+    pub role_name: String,
+    pub role_key: String,
+    pub role_sort: i32,
+    pub remark: Option<String>,
+    pub data_scope: Option<String>,
+    pub status: Option<String>,
+    pub menu_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRoleStatusDTO {
+    pub status: i16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRoleDataScopeDTO {
+    pub dept_ids: Vec<i64>,
+    pub data_scope: Option<i16>,
+}

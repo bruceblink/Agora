@@ -66,7 +66,7 @@ agora/
 
 | 表名 | 说明 |
 | --- | --- |
-| `roles` | 系统角色（admin / editor / user） |
+| `roles` | 系统角色，兼容 Keystone 的 `roleName` / `roleKey` / `dataScope` 管理模型 |
 | `permissions` | 权限/JWT Scopes（user:read / user:write / order:read 等） |
 | `role_permissions` | 角色-权限关联 |
 | `sys_role_menu` | 角色-菜单关联，兼容 Keystone 菜单授权模型 |

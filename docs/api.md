@@ -36,6 +36,14 @@
   - [新增菜单](#post-apisystemmenus)
   - [更新菜单](#put-apisystemmenusmenuid)
   - [删除菜单](#delete-apisystemmenusmenuid)
+  - [分页查询角色](#get-apisystemrolelist)
+  - [导出角色列表](#post-apisystemroleexport)
+  - [角色详情](#get-apisystemroleroleid)
+  - [新增角色](#post-apisystemrole)
+  - [更新角色](#put-apisystemrole)
+  - [更新角色状态](#put-apisystemroleroleidstatus)
+  - [更新角色数据范围](#put-apisystemroleroleiddatascope)
+  - [删除角色](#delete-apisystemroleroleids)
   - [分页查询字典类型](#get-apisystemdicttypes)
   - [字典类型详情](#get-apisystemdicttypedictid)
   - [新增字典类型](#post-apisystemdicttype)
@@ -588,6 +596,146 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 ### DELETE `/api/system/menus/{menuId}`
 
 删除菜单。存在子菜单或已分配给角色时会返回请求错误。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/role/list`
+
+分页查询 Keystone 兼容角色列表。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `roleName` | string | 角色名称，模糊匹配 | — |
+| `roleKey` | string | 角色标识，精确匹配 | — |
+| `status` | string | `1`=正常 / `0`=停用 | — |
+
+**响应** `200 OK` → `PageData<RoleDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "items": [
+      {
+        "roleId": 1,
+        "roleName": "超级管理员",
+        "roleKey": "admin",
+        "roleSort": 1,
+        "status": 1,
+        "remark": "超级管理员",
+        "createTime": "2022-05-21T08:30:54Z",
+        "dataScope": 1,
+        "selectedMenuList": [],
+        "selectedDeptList": []
+      }
+    ],
+    "totalCount": 5,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+---
+
+### POST `/api/system/role/export`
+
+导出角色列表。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/role/{roleId}`
+
+角色详情，包含 `selectedMenuList` 和兼容字段 `selectedDeptList`。当前产品范围不引入部门模型，`selectedDeptList` 仅回显持久化的数据范围 ID。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/role`
+
+新增角色，同时保存菜单授权并同步到当前 RBAC `role_permissions`。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "roleName": "审计员",
+  "roleKey": "auditor",
+  "roleSort": 10,
+  "remark": "只读审计角色",
+  "dataScope": "1",
+  "status": "1",
+  "menuIds": [1, 7, 32]
+}
+```
+
+---
+
+### PUT `/api/system/role`
+
+更新角色基础信息和菜单授权。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "roleId": 4,
+  "roleName": "审计员",
+  "roleKey": "auditor",
+  "roleSort": 10,
+  "remark": "只读审计角色",
+  "dataScope": "1",
+  "status": "1",
+  "menuIds": [1, 7, 32]
+}
+```
+
+---
+
+### PUT `/api/system/role/{roleId}/status`
+
+更新角色状态。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "status": 0
+}
+```
+
+---
+
+### PUT `/api/system/role/{roleId}/dataScope`
+
+更新角色数据范围。部门模块不在当前产品范围内，因此这里只保存 `deptIds` 兼容字段，不校验部门表。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "dataScope": 2,
+  "deptIds": [100, 200]
+}
+```
+
+---
+
+### DELETE `/api/system/role/{roleIds}`
+
+删除一个或多个角色；已分配给用户的角色不能删除。多个 ID 使用逗号分隔，例如 `/api/system/role/4,5`。
 
 **需要认证，仅管理员**
 

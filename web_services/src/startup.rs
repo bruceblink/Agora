@@ -20,6 +20,10 @@ use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
 use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_update, menus_list};
 use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
 use crate::routes::{
+    role_create, role_data_scope_update, role_delete, role_get, role_status_update, role_update,
+    roles_export, roles_list,
+};
+use crate::routes::{
     system_config_cache_refresh, system_config_get, system_config_update, system_configs_list,
 };
 use actix_web::dev::Server;
@@ -161,6 +165,14 @@ async fn create_server(
                         .service(notice_create)
                         .service(notice_update)
                         .service(notice_delete)
+                        .service(roles_list)
+                        .service(roles_export)
+                        .service(role_status_update)
+                        .service(role_data_scope_update)
+                        .service(role_get)
+                        .service(role_create)
+                        .service(role_update)
+                        .service(role_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

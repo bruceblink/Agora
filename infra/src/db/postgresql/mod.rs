@@ -8,6 +8,7 @@ mod sys_config;
 mod sys_dict;
 mod sys_menu;
 mod sys_notice;
+mod sys_role;
 mod user_info_table;
 
 pub use ani_collect_table::*;
@@ -20,4 +21,5 @@ pub use sys_config::*;
 pub use sys_dict::*;
 pub use sys_menu::*;
 pub use sys_notice::*;
+pub use sys_role::*;
 pub use user_info_table::*;

@@ -97,3 +97,13 @@ pub struct NoticeQuery {
 pub struct MenuQuery {
     pub is_button: Option<bool>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleQuery {
+    pub role_name: Option<String>,
+    pub role_key: Option<String>,
+    pub status: Option<String>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}

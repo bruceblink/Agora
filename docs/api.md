@@ -25,6 +25,11 @@
   - [系统配置详情](#get-apisystemconfigconfigid)
   - [更新系统配置](#put-apisystemconfigconfigid)
   - [刷新系统配置缓存](#delete-apisystemconfigscache)
+  - [分页查询通知公告](#get-apisystemnotices)
+  - [通知公告详情](#get-apisystemnoticesnoticeid)
+  - [新增通知公告](#post-apisystemnotices)
+  - [更新通知公告](#put-apisystemnoticesnoticeid)
+  - [删除通知公告](#delete-apisystemnotices)
   - [分页查询字典类型](#get-apisystemdicttypes)
   - [字典类型详情](#get-apisystemdicttypedictid)
   - [新增字典类型](#post-apisystemdicttype)
@@ -392,6 +397,96 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 刷新系统配置缓存。Agora 当前未启用本地配置缓存，该接口保留为 Keystone 兼容 no-op。
 
 **需要认证，仅管理员**
+
+---
+
+### GET `/api/system/notices`
+
+分页查询通知公告。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `noticeTitle` | string | 公告标题，模糊匹配 | — |
+| `noticeType` | string | 公告类型：`1`=通知 / `2`=公告 | — |
+| `creatorName` | string | 创建人用户名，模糊匹配 | — |
+
+**响应** `200 OK` → `PageData<NoticeDTO>`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "items": [
+      {
+        "noticeId": "1",
+        "noticeTitle": "维护通知：2018-07-01 Keystone系统凌晨维护",
+        "noticeType": 1,
+        "noticeContent": "维护内容",
+        "status": 1,
+        "createTime": "2026-06-08T13:00:00Z",
+        "creatorName": "admin"
+      }
+    ],
+    "totalCount": 2,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+---
+
+### GET `/api/system/notices/{noticeId}`
+
+通知公告详情。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/notices`
+
+新增通知公告。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "noticeTitle": "维护通知",
+  "noticeType": "1",
+  "noticeContent": "系统将在凌晨维护",
+  "status": "1"
+}
+```
+
+---
+
+### PUT `/api/system/notices/{noticeId}`
+
+更新通知公告。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/notices`
+
+批量删除通知公告。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `noticeIds` | number[] | ✓ | 可重复传递，例如 `?noticeIds=1&noticeIds=2` |
 
 ---
 

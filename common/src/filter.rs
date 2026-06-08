@@ -81,3 +81,13 @@ pub struct SystemConfigQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeQuery {
+    pub notice_type: Option<String>,
+    pub notice_title: Option<String>,
+    pub creator_name: Option<String>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}

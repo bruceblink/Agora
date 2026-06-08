@@ -301,3 +301,33 @@ pub struct SystemConfigDTO {
 pub struct UpdateSystemConfigDTO {
     pub config_value: String,
 }
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeDTO {
+    pub notice_id: String,
+    pub notice_title: String,
+    pub notice_type: i16,
+    pub notice_content: String,
+    pub status: i16,
+    pub create_time: chrono::DateTime<Utc>,
+    pub creator_name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateNoticeDTO {
+    pub notice_title: String,
+    pub notice_type: String,
+    pub notice_content: String,
+    pub status: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNoticeDTO {
+    pub notice_title: String,
+    pub notice_type: String,
+    pub notice_content: String,
+    pub status: String,
+}

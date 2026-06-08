@@ -6,6 +6,7 @@ mod news_item_table;
 mod scheduled_tasks;
 mod sys_config;
 mod sys_dict;
+mod sys_notice;
 mod user_info_table;
 
 pub use ani_collect_table::*;
@@ -16,4 +17,5 @@ pub use news_item_table::*;
 pub use scheduled_tasks::*;
 pub use sys_config::*;
 pub use sys_dict::*;
+pub use sys_notice::*;
 pub use user_info_table::*;

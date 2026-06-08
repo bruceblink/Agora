@@ -17,6 +17,7 @@ use crate::routes::{
     scheduled_tasks_get, scheduled_tasks_toggle, scheduled_tasks_update, task_reload,
 };
 use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
+use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
 use crate::routes::{
     system_config_cache_refresh, system_config_get, system_config_update, system_configs_list,
 };
@@ -148,6 +149,11 @@ async fn create_server(
                         .service(system_config_get)
                         .service(system_config_update)
                         .service(system_config_cache_refresh)
+                        .service(notices_list)
+                        .service(notice_get)
+                        .service(notice_create)
+                        .service(notice_update)
+                        .service(notice_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

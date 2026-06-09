@@ -5,7 +5,10 @@ use chrono::Utc;
 use common::api::{ApiError, ApiResponse};
 use common::utils::{CommonUser, generate_jwt, generate_refresh_token, verify_jwt};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
-use infra::{build_login_log, record_login_info};
+use infra::{
+    browser_from_user_agent, build_login_log, build_session_login_info,
+    operation_system_from_user_agent, private_ip_location, record_login_info,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -65,6 +68,17 @@ async fn record_login_attempt(
     if let Err(e) = record_login_info(&log, &app_state.db_pool).await {
         tracing::warn!("写入登录日志失败: {e}");
     }
+}
+
+fn session_login_info(http_req: &HttpRequest) -> infra::SessionLoginInfo {
+    let ip_address = request_ip(http_req);
+    let user_agent = user_agent(http_req);
+    build_session_login_info(
+        &ip_address,
+        &private_ip_location(&ip_address),
+        &browser_from_user_agent(&user_agent),
+        &operation_system_from_user_agent(&user_agent),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,16 +232,25 @@ async fn login(
 
     let session_expires_at = Utc::now() + chrono::Duration::days(30);
 
+    let login_info = session_login_info(&http_req);
+
     sqlx::query(
         r#"
-            INSERT INTO refresh_tokens (user_id, token, expires_at, session_expires_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO refresh_tokens (
+                user_id, token, expires_at, session_expires_at,
+                login_ip, login_location, browser, operation_system
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(user.id)
     .bind(&refresh_token.token)
     .bind(refresh_token.expires_at)
     .bind(session_expires_at)
+    .bind(&login_info.ip_address)
+    .bind(&login_info.login_location)
+    .bind(&login_info.browser)
+    .bind(&login_info.operation_system)
     .execute(&app_state.db_pool)
     .await
     .map_err(|e| {

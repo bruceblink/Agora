@@ -6,6 +6,10 @@ use common::api::{ApiError, ApiResponse};
 use common::po::ApiResult;
 use common::utils::{CommonUser, generate_jwt, generate_refresh_token};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
+use infra::{
+    browser_from_user_agent, build_session_login_info, operation_system_from_user_agent,
+    private_ip_location,
+};
 use serde::Serialize;
 use sqlx::FromRow;
 
@@ -22,6 +26,32 @@ fn token_window_days(
             tracing::error!("token 配置缺失: {token_key}");
             ApiError::Internal("token 配置缺失".into())
         })
+}
+
+fn request_ip(req: &HttpRequest) -> String {
+    req.connection_info()
+        .realip_remote_addr()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn user_agent(req: &HttpRequest) -> String {
+    req.headers()
+        .get("user-agent")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn session_login_info(req: &HttpRequest) -> infra::SessionLoginInfo {
+    let ip_address = request_ip(req);
+    let user_agent = user_agent(req);
+    build_session_login_info(
+        &ip_address,
+        &private_ip_location(&ip_address),
+        &browser_from_user_agent(&user_agent),
+        &operation_system_from_user_agent(&user_agent),
+    )
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -119,18 +149,27 @@ async fn auth_token_refresh(req: HttpRequest, app_state: web::Data<AppState>) ->
         ApiError::Internal("refresh_token 生成失败".into())
     })?;
 
+    let login_info = session_login_info(&req);
+
     sqlx::query(
         r#"
             INSERT INTO refresh_tokens
-                (user_id, token, expires_at, session_expires_at)
+                (
+                    user_id, token, expires_at, session_expires_at,
+                    login_ip, login_location, browser, operation_system
+                )
             VALUES
-                ($1, $2, $3, $4)
+                ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(user_id)
     .bind(new_refresh_token.clone().token)
     .bind(new_expires_at)
     .bind(session_expires_at)
+    .bind(&login_info.ip_address)
+    .bind(&login_info.login_location)
+    .bind(&login_info.browser)
+    .bind(&login_info.operation_system)
     .execute(&mut *tx)
     .await
     .map_err(|e| {

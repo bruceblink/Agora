@@ -85,6 +85,11 @@
   - [新增操作日志](#post-apilogsoperationlogs)
   - [导出操作日志](#get-apilogsoperationlogsexcel)
   - [删除操作日志](#delete-apilogsoperationlogs)
+- [系统监控](#系统监控)
+  - [缓存监控信息](#get-apimonitorcacheinfo)
+  - [服务器监控信息](#get-apimonitorserverinfo)
+  - [在线用户列表](#get-apimonitoronlineusers)
+  - [强退在线用户](#delete-apimonitoronlineusertokenid)
 - [番剧信息](#番剧信息)
   - [分页查询番剧列表](#get-apianis)
   - [查询单条番剧](#get-apianisid)
@@ -1455,6 +1460,63 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `operationIds` | number[] | ✓ | 可重复传递，例如 `?operationIds=561&operationIds=562` |
+
+---
+
+## 系统监控
+
+> 对应 Keystone `/monitor` 模块。Agora 挂载在 `/api` 认证前缀下，所以外部路径为 `/api/monitor/*`。
+
+### GET `/api/monitor/cacheInfo`
+
+返回 Keystone Redis 监控页兼容结构。Agora 当前没有 Redis 登录态，该接口用运行时与数据库会话统计填充 Redis 风格字段，保证前端缓存监控页可渲染。
+
+**需要认证，仅管理员**
+
+**响应** `200 OK` → `RedisCacheInfoDTO`
+
+关键字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `info` | object | Redis 风格键值表，例如 `redis_version`、`used_memory_human` |
+| `dbSize` | number | 当前有效 refresh token 会话数 |
+| `commandStats` | array | ECharts 饼图数据，包含 `name` / `value` |
+
+---
+
+### GET `/api/monitor/serverInfo`
+
+返回 Keystone 服务器监控页兼容结构，包含 `cpuInfo`、`memoryInfo`、`jvmInfo`、`systemInfo`、`diskInfos`。Rust 服务没有 JVM，`jvmInfo` 字段按前端契约映射为当前 Agora 进程运行时信息。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/monitor/onlineUsers`
+
+分页查询在线用户。Agora 使用未撤销且未过期的 `refresh_tokens` 作为在线会话来源；新登录会记录 IP、登录地点、浏览器和操作系统，历史会话会回退到最近一次成功登录日志。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数，最大 500 | 10 |
+| `ipAddress` | string | 登录 IP，模糊匹配 | — |
+| `username` | string | 用户名，模糊匹配 | — |
+
+**响应** `200 OK` → `PageData<OnlineUserDTO>`
+
+---
+
+### DELETE `/api/monitor/onlineUser/{tokenId}`
+
+强制登出在线用户。`tokenId` 为在线用户列表返回的会话编号，Agora 会撤销匹配前缀的 refresh token。
+
+**需要认证，仅管理员**
 
 ---
 

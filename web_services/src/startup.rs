@@ -31,6 +31,9 @@ use crate::routes::{
 };
 use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
 use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_update, menus_list};
+use crate::routes::{
+    monitor_cache_info, monitor_online_user_delete, monitor_online_users, monitor_server_info,
+};
 use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
 use crate::routes::{profile_avatar_update, profile_get, profile_password_update, profile_update};
 use crate::routes::{
@@ -234,6 +237,10 @@ async fn create_server(
                         .service(operation_logs_export)
                         .service(operation_log_create)
                         .service(operation_logs_delete)
+                        .service(monitor_cache_info)
+                        .service(monitor_server_info)
+                        .service(monitor_online_users)
+                        .service(monitor_online_user_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)

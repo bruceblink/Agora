@@ -40,5 +40,6 @@ futures-util.workspace = true
 lazy_static.workspace = true
 rand.workspace = true
 mime.workspace = true
+sysinfo.workspace = true
 infra = {path = "../infra"}
 service = {path = "../service"}

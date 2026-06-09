@@ -204,7 +204,7 @@ fn request_method_value(method: &str) -> i16 {
     }
 }
 
-fn private_ip_location(ip_address: &str) -> String {
+pub fn private_ip_location(ip_address: &str) -> String {
     let ip = ip_address.trim();
     if ip.is_empty() {
         return String::new();
@@ -231,7 +231,7 @@ fn private_ip_location(ip_address: &str) -> String {
     }
 }
 
-fn browser_from_user_agent(user_agent: &str) -> String {
+pub fn browser_from_user_agent(user_agent: &str) -> String {
     if user_agent.contains("Edg/") {
         "Edge".to_string()
     } else if user_agent.contains("Chrome/") {
@@ -247,7 +247,7 @@ fn browser_from_user_agent(user_agent: &str) -> String {
     }
 }
 
-fn operation_system_from_user_agent(user_agent: &str) -> String {
+pub fn operation_system_from_user_agent(user_agent: &str) -> String {
     if user_agent.contains("Windows") {
         "Windows".to_string()
     } else if user_agent.contains("Mac OS X") {

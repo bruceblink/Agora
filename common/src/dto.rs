@@ -1,6 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -719,6 +720,102 @@ pub struct OperationLogDTO {
     pub status_str: String,
     pub error_stack: Option<String>,
     pub operation_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineUserDTO {
+    pub token_id: String,
+    pub dept_name: Option<String>,
+    pub username: String,
+    pub ip_address: String,
+    pub login_location: String,
+    pub browser: String,
+    pub operation_system: String,
+    pub login_time: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisCommandStatusDTO {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisCacheInfoDTO {
+    pub info: HashMap<String, String>,
+    pub db_size: i64,
+    pub command_stats: Vec<RedisCommandStatusDTO>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuInfoDTO {
+    pub cpu_num: usize,
+    pub total: f64,
+    pub sys: f64,
+    pub used: f64,
+    pub wait: f64,
+    pub free: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryInfoDTO {
+    pub total: f64,
+    pub used: f64,
+    pub free: f64,
+    pub usage: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JvmInfoDTO {
+    pub total: f64,
+    pub max: f64,
+    pub free: f64,
+    pub used: f64,
+    pub usage: f64,
+    pub name: String,
+    pub version: String,
+    pub home: String,
+    pub start_time: String,
+    pub run_time: String,
+    pub input_args: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemInfoDTO {
+    pub computer_name: String,
+    pub computer_ip: String,
+    pub user_dir: String,
+    pub os_name: String,
+    pub os_arch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskInfoDTO {
+    pub dir_name: String,
+    pub sys_type_name: String,
+    pub type_name: String,
+    pub total: String,
+    pub free: String,
+    pub used: String,
+    pub usage: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfoDTO {
+    pub cpu_info: CpuInfoDTO,
+    pub memory_info: MemoryInfoDTO,
+    pub jvm_info: JvmInfoDTO,
+    pub system_info: SystemInfoDTO,
+    pub disk_infos: Vec<DiskInfoDTO>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

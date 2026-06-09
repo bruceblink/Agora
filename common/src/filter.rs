@@ -206,3 +206,13 @@ pub struct JobQuery {
     pub begin_time: Option<chrono::NaiveDate>,
     pub end_time: Option<chrono::NaiveDate>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineUserQuery {
+    pub ip_address: Option<String>,
+    pub username: Option<String>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+}

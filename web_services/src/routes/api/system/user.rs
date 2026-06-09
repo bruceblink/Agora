@@ -7,7 +7,7 @@ use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, post, put, 
 use calamine::{Data, Reader, open_workbook_auto_from_rs};
 use common::api::{ApiError, ApiResponse};
 use common::dto::{
-    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, PostDTO, ResetUserPasswordDTO,
+    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, ResetUserPasswordDTO,
     SystemUserDTO, UpdateDeptDTO, UpdatePostDTO, UpdateSystemUserDTO, UpdateUserStatusDTO,
 };
 use common::po::ApiResult;
@@ -20,7 +20,7 @@ use infra::{
     update_dept, update_post, update_system_user, update_system_user_password,
     update_system_user_status,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Cursor;
 
@@ -44,6 +44,15 @@ const USER_IMPORT_HEADERS: [&str; 12] = [
 #[serde(rename_all = "camelCase")]
 struct DeletePostQuery {
     ids: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DeptTreeDTO {
+    id: i64,
+    parent_id: i64,
+    label: String,
+    children: Vec<DeptTreeDTO>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +163,31 @@ fn user_export_row(item: &SystemUserDTO) -> Vec<String> {
         optional_datetime(&item.update_time),
         optional(&item.remark),
     ]
+}
+
+fn dept_tree_nodes(depts: &[DeptDTO]) -> Vec<DeptTreeDTO> {
+    let ids = depts
+        .iter()
+        .map(|dept| dept.id)
+        .collect::<std::collections::HashSet<_>>();
+    depts
+        .iter()
+        .filter(|dept| dept.parent_id == 0 || !ids.contains(&dept.parent_id))
+        .map(|dept| dept_tree_node(depts, dept))
+        .collect()
+}
+
+fn dept_tree_node(depts: &[DeptDTO], dept: &DeptDTO) -> DeptTreeDTO {
+    DeptTreeDTO {
+        id: dept.id,
+        parent_id: dept.parent_id,
+        label: dept.dept_name.clone(),
+        children: depts
+            .iter()
+            .filter(|child| child.parent_id == dept.id)
+            .map(|child| dept_tree_node(depts, child))
+            .collect(),
+    }
 }
 
 fn cell_string(cell: Option<&Data>) -> String {
@@ -347,7 +381,7 @@ async fn depts_list(
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
     match list_depts(&query.into_inner(), &app_state.db_pool).await {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(dept_tree_nodes(&data)))),
         Err(e) => {
             tracing::error!("查询部门列表失败: {e:?}");
             Err(ApiError::Database("查询部门列表失败".into()))
@@ -834,13 +868,13 @@ async fn users_delete(
 #[cfg(test)]
 mod tests {
     use super::{
-        USER_IMPORT_HEADERS, hash_password, parse_import_users_excel, user_export_row,
-        validate_positive_id,
+        USER_IMPORT_HEADERS, dept_tree_nodes, hash_password, parse_import_users_excel,
+        user_export_row, validate_positive_id,
     };
     use crate::routes::api::export::xlsx_from_rows;
     use chrono::Utc;
     use common::api::ApiError;
-    use common::dto::SystemUserDTO;
+    use common::dto::{DeptDTO, SystemUserDTO};
 
     #[test]
     fn validate_positive_id_rejects_non_positive_values() {
@@ -928,5 +962,43 @@ mod tests {
             ApiError::BadRequest(message) => assert!(message.contains("Excel 缺少表头")),
             _ => panic!("expected bad request"),
         }
+    }
+
+    #[test]
+    fn dept_tree_nodes_builds_keystone_dropdown_shape() {
+        let now = Utc::now();
+        let depts = vec![
+            DeptDTO {
+                id: 1,
+                parent_id: 0,
+                dept_name: "总部".into(),
+                order_num: 1,
+                leader_name: None,
+                phone: None,
+                email: None,
+                status: 1,
+                status_str: "正常".into(),
+                create_time: now,
+            },
+            DeptDTO {
+                id: 2,
+                parent_id: 1,
+                dept_name: "研发部".into(),
+                order_num: 2,
+                leader_name: None,
+                phone: None,
+                email: None,
+                status: 1,
+                status_str: "正常".into(),
+                create_time: now,
+            },
+        ];
+
+        let tree = dept_tree_nodes(&depts);
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].label, "总部");
+        assert_eq!(tree[0].children[0].label, "研发部");
+        assert_eq!(tree[0].children[0].parent_id, 1);
     }
 }

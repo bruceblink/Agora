@@ -1159,7 +1159,7 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 
 ### GET `/api/system/depts/dropdown`
 
-部门下拉树数据。当前返回与部门列表一致的一维数组，前端 `handleTree` 负责组装。
+部门下拉树数据，返回 Keystone 兼容 `Tree<Long>` 结构：`id`、`parentId`、`label`、`children`。
 
 **需要认证，仅管理员**
 

@@ -6,7 +6,10 @@ use common::dto::{UpdateOwnPasswordDTO, UpdateProfileDTO, UploadFileDTO};
 use common::po::ApiResult;
 use common::utils::JwtClaims;
 use futures_util::StreamExt;
-use infra::{get_user_profile, update_own_password, update_user_avatar, update_user_profile};
+use infra::{
+    SystemUserBusinessError, get_user_profile, update_own_password, update_user_avatar,
+    update_user_profile,
+};
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 
@@ -14,6 +17,30 @@ const AVATAR_FORM_FIELD: &str = "avatarfile";
 const AVATAR_DIR: &str = "uploads/avatar";
 const AVATAR_URL_PREFIX: &str = "/uploads/avatar";
 const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
+const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
+const KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE: i32 = 10508;
+const KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE: i32 = 10509;
+
+fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
+    ApiResponse {
+        code,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
+}
+
+fn user_business_error_response(error: &SystemUserBusinessError) -> Option<ApiResponse<()>> {
+    let code = match error {
+        SystemUserBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemUserBusinessError::PhoneNumberNotUnique => KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE,
+        SystemUserBusinessError::EmailNotUnique => KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+        SystemUserBusinessError::UsernameNotUnique
+        | SystemUserBusinessError::CurrentUserCannotBeDeleted => return None,
+    };
+    Some(business_error_response(code, error.to_string()))
+}
 
 fn current_user_id(req: &HttpRequest) -> Result<i64, ApiError> {
     req.extensions()
@@ -129,6 +156,11 @@ async fn profile_update(
     match update_user_profile(user_id, &body.into_inner(), &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>()
+                && let Some(response) = user_business_error_response(error)
+            {
+                return Ok(HttpResponse::Ok().json(response));
+            }
             tracing::error!("更新个人资料失败 user_id={user_id}: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -174,7 +206,13 @@ async fn profile_avatar_update(
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_AVATAR_BYTES, extension_from_content_type};
+    use super::{
+        KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+        KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE, MAX_AVATAR_BYTES, extension_from_content_type,
+        user_business_error_response,
+    };
+    use infra::SystemUserBusinessError;
+    use serde_json::json;
 
     #[test]
     fn avatar_size_limit_matches_product_guardrail() {
@@ -188,5 +226,39 @@ mod tests {
             "png"
         );
         assert!(extension_from_content_type(Some(&mime::APPLICATION_JSON)).is_err());
+    }
+
+    #[test]
+    fn profile_user_business_responses_match_keystone_errors() {
+        let cases = [
+            (
+                SystemUserBusinessError::ObjectNotFound {
+                    id: 4,
+                    object_name: "用户",
+                },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 4 的 用户",
+            ),
+            (
+                SystemUserBusinessError::PhoneNumberNotUnique,
+                KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE,
+                "该电话号码已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::EmailNotUnique,
+                KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+                "该邮件地址已被其他用户占用",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            let value = serde_json::to_value(user_business_error_response(&error))
+                .unwrap_or_else(|_| json!(null));
+            assert_eq!(value["code"], code);
+            assert_eq!(value["msg"], message);
+            assert_eq!(value["message"], message);
+            assert_eq!(value["status"], "error");
+            assert!(value.get("data").is_none());
+        }
     }
 }

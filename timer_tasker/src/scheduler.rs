@@ -246,11 +246,7 @@ mod tests {
             }));
             map.insert("mock".into(), set);
 
-            Ok(ApiResponse {
-                status: "".to_string(),
-                data: Some(map),
-                message: None,
-            })
+            Ok(ApiResponse::ok(map))
         }
     }
 
@@ -264,11 +260,7 @@ mod tests {
         async fn run(&self) -> Result<ApiResponse<ItemResult>, String> {
             let current = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
             if current >= self.succeed_on {
-                Ok(ApiResponse {
-                    status: "".to_string(),
-                    data: Some(Default::default()),
-                    message: None,
-                })
+                Ok(ApiResponse::ok(Default::default()))
             } else {
                 Err(format!("attempt {current} failed"))
             }

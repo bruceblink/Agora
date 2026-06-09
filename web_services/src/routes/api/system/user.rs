@@ -16,10 +16,11 @@ use common::utils::JwtClaims;
 use common::{DeptQuery, PostQuery, SystemUserQuery};
 use futures_util::StreamExt;
 use infra::{
-    SystemDeptBusinessError, SystemPostBusinessError, create_dept, create_post, create_system_user,
-    delete_dept, delete_posts, delete_system_users, get_dept, get_post, get_user_detail,
-    list_depts, list_posts, list_system_users, parse_id_list, update_dept, update_post,
-    update_system_user, update_system_user_password, update_system_user_status,
+    SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError, create_dept,
+    create_post, create_system_user, delete_dept, delete_posts, delete_system_users, get_dept,
+    get_post, get_user_detail, list_depts, list_posts, list_system_users, parse_id_list,
+    update_dept, update_post, update_system_user, update_system_user_password,
+    update_system_user_status,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -51,6 +52,10 @@ const KEYSTONE_DEPT_STATUS_CHANGE_CODE: i32 = 10803;
 const KEYSTONE_DEPT_HAS_CHILD_CODE: i32 = 10804;
 const KEYSTONE_DEPT_LINKED_USER_CODE: i32 = 10805;
 const KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE: i32 = 10806;
+const KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE: i32 = 10508;
+const KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE: i32 = 10509;
+const KEYSTONE_USER_NAME_NOT_UNIQUE_CODE: i32 = 10513;
+const KEYSTONE_USER_CURRENT_USER_CANNOT_DELETE_CODE: i32 = 10514;
 
 fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
     ApiResponse {
@@ -81,6 +86,19 @@ fn dept_business_error_response(error: &SystemDeptBusinessError) -> ApiResponse<
         SystemDeptBusinessError::HasChildDept => KEYSTONE_DEPT_HAS_CHILD_CODE,
         SystemDeptBusinessError::HasLinkedUser => KEYSTONE_DEPT_LINKED_USER_CODE,
         SystemDeptBusinessError::ParentDeptUnavailable => KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE,
+    };
+    business_error_response(code, error.to_string())
+}
+
+fn user_business_error_response(error: &SystemUserBusinessError) -> ApiResponse<()> {
+    let code = match error {
+        SystemUserBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemUserBusinessError::UsernameNotUnique => KEYSTONE_USER_NAME_NOT_UNIQUE_CODE,
+        SystemUserBusinessError::PhoneNumberNotUnique => KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE,
+        SystemUserBusinessError::EmailNotUnique => KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+        SystemUserBusinessError::CurrentUserCannotBeDeleted => {
+            KEYSTONE_USER_CURRENT_USER_CANNOT_DELETE_CODE
+        }
     };
     business_error_response(code, error.to_string())
 }
@@ -816,7 +834,7 @@ async fn user_get(
         Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
         Err(e) => {
             tracing::error!("查询用户 {user_id} 失败: {e:?}");
-            Err(ApiError::NotFound(format!("用户 {user_id} 不存在")))
+            Err(ApiError::Internal("服务器内部错误".into()))
         }
     }
 }
@@ -841,6 +859,9 @@ async fn user_create(
     {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>() {
+                return Ok(HttpResponse::Ok().json(user_business_error_response(error)));
+            }
             tracing::error!("新增用户失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -862,6 +883,9 @@ async fn user_update(
     match update_system_user(user_id, &data, current_user_id(&req), &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>() {
+                return Ok(HttpResponse::Ok().json(user_business_error_response(error)));
+            }
             tracing::error!("更新用户 {user_id} 失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -884,6 +908,9 @@ async fn user_password_update(
     match update_system_user_password(user_id, &data, &password_hash, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>() {
+                return Ok(HttpResponse::Ok().json(user_business_error_response(error)));
+            }
             tracing::error!("重置用户 {user_id} 密码失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -905,6 +932,9 @@ async fn user_status_update(
     match update_system_user_status(user_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>() {
+                return Ok(HttpResponse::Ok().json(user_business_error_response(error)));
+            }
             tracing::error!("更新用户 {user_id} 状态失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -924,6 +954,9 @@ async fn users_delete(
     match delete_system_users(&user_ids, current_user_id(&req), &app_state.db_pool).await {
         Ok(_) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemUserBusinessError>() {
+                return Ok(HttpResponse::Ok().json(user_business_error_response(error)));
+            }
             tracing::error!("删除用户失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -938,15 +971,17 @@ mod tests {
         KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE, KEYSTONE_DEPT_STATUS_CHANGE_CODE,
         KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
         KEYSTONE_POST_CODE_NOT_UNIQUE_CODE, KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
+        KEYSTONE_USER_CURRENT_USER_CANNOT_DELETE_CODE, KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+        KEYSTONE_USER_NAME_NOT_UNIQUE_CODE, KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE,
         USER_IMPORT_HEADERS, dept_business_error_response, dept_tree_nodes, hash_password,
-        parse_import_users_excel, post_business_error_response, user_export_row,
-        validate_positive_id,
+        parse_import_users_excel, post_business_error_response, user_business_error_response,
+        user_export_row, validate_positive_id,
     };
     use crate::routes::api::export::xlsx_from_rows;
     use chrono::Utc;
     use common::api::{ApiError, ApiResponse};
-    use common::dto::{DeptDTO, DeptResponseDTO, PostResponseDTO, SystemUserDTO};
-    use infra::{SystemDeptBusinessError, SystemPostBusinessError};
+    use common::dto::{DeptDTO, DeptResponseDTO, PostResponseDTO, SystemUserDTO, UserDetailDTO};
+    use infra::{SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError};
     use serde_json::json;
 
     #[test]
@@ -1070,6 +1105,79 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(post_business_error_response(&error))
+                .unwrap_or_else(|_| json!(null));
+            assert_eq!(value["code"], code);
+            assert_eq!(value["msg"], message);
+            assert_eq!(value["message"], message);
+            assert_eq!(value["status"], "error");
+            assert!(value.get("data").is_none());
+        }
+    }
+
+    #[test]
+    fn missing_user_detail_matches_keystone_empty_success() {
+        let value = serde_json::to_value(ApiResponse::ok(UserDetailDTO {
+            user: None,
+            role_options: Vec::new(),
+            post_options: Vec::new(),
+            post_id: None,
+            role_id: None,
+            permissions: Vec::new(),
+        }))
+        .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], 0);
+        assert_eq!(value["msg"], "操作成功");
+        assert_eq!(value["status"], "ok");
+        assert!(value["data"].is_object());
+        assert!(value["data"]["user"].is_null());
+        assert!(value["data"]["postId"].is_null());
+        assert!(value["data"]["roleId"].is_null());
+    }
+
+    #[test]
+    fn user_business_responses_match_keystone_errors() {
+        let cases = [
+            (
+                SystemUserBusinessError::ObjectNotFound {
+                    id: 9,
+                    object_name: "用户",
+                },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 9 的 用户",
+            ),
+            (
+                SystemUserBusinessError::ObjectNotFound {
+                    id: 3,
+                    object_name: "角色",
+                },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 3 的 角色",
+            ),
+            (
+                SystemUserBusinessError::UsernameNotUnique,
+                KEYSTONE_USER_NAME_NOT_UNIQUE_CODE,
+                "用户名已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::PhoneNumberNotUnique,
+                KEYSTONE_USER_PHONE_NOT_UNIQUE_CODE,
+                "该电话号码已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::EmailNotUnique,
+                KEYSTONE_USER_EMAIL_NOT_UNIQUE_CODE,
+                "该邮件地址已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::CurrentUserCannotBeDeleted,
+                KEYSTONE_USER_CURRENT_USER_CANNOT_DELETE_CODE,
+                "当前用户不允许被删除",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            let value = serde_json::to_value(user_business_error_response(&error))
                 .unwrap_or_else(|_| json!(null));
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);

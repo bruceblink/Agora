@@ -192,6 +192,31 @@ struct NormalizedUser {
     remark: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemUserBusinessError {
+    ObjectNotFound { id: i64, object_name: &'static str },
+    UsernameNotUnique,
+    PhoneNumberNotUnique,
+    EmailNotUnique,
+    CurrentUserCannotBeDeleted,
+}
+
+impl fmt::Display for SystemUserBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id, object_name } => {
+                write!(f, "找不到ID为 {id} 的 {object_name}")
+            }
+            Self::UsernameNotUnique => f.write_str("用户名已被其他用户占用"),
+            Self::PhoneNumberNotUnique => f.write_str("该电话号码已被其他用户占用"),
+            Self::EmailNotUnique => f.write_str("该邮件地址已被其他用户占用"),
+            Self::CurrentUserCannotBeDeleted => f.write_str("当前用户不允许被删除"),
+        }
+    }
+}
+
+impl std::error::Error for SystemUserBusinessError {}
+
 fn page_bounds(
     page: Option<u32>,
     page_num: Option<u32>,
@@ -611,21 +636,53 @@ async fn role_exists(role_id: i64, db_pool: &PgPool) -> anyhow::Result<bool> {
         .map_err(Into::into)
 }
 
-async fn ensure_user_relations(user: &NormalizedUser, db_pool: &PgPool) -> anyhow::Result<()> {
-    if let Some(dept_id) = user.dept_id
-        && !dept_exists(dept_id, db_pool).await?
-    {
-        return Err(anyhow::anyhow!("部门不存在"));
+async fn system_user_admin_flag(user_id: i64, db_pool: &PgPool) -> anyhow::Result<Option<bool>> {
+    sqlx::query_scalar("SELECT is_admin FROM user_info WHERE id = $1 AND deleted = FALSE")
+        .bind(user_id)
+        .fetch_optional(db_pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn ensure_system_user_exists(user_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
+    if system_user_admin_flag(user_id, db_pool).await?.is_some() {
+        Ok(())
+    } else {
+        Err(SystemUserBusinessError::ObjectNotFound {
+            id: user_id,
+            object_name: "用户",
+        }
+        .into())
     }
+}
+
+async fn ensure_user_relations(user: &NormalizedUser, db_pool: &PgPool) -> anyhow::Result<()> {
     if let Some(post_id) = user.post_id
         && !post_exists(post_id, db_pool).await?
     {
-        return Err(anyhow::anyhow!("岗位不存在"));
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: post_id,
+            object_name: "职位",
+        }
+        .into());
+    }
+    if let Some(dept_id) = user.dept_id
+        && !dept_exists(dept_id, db_pool).await?
+    {
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: dept_id,
+            object_name: "部门",
+        }
+        .into());
     }
     if let Some(role_id) = user.role_id
         && !role_exists(role_id, db_pool).await?
     {
-        return Err(anyhow::anyhow!("角色不存在"));
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: role_id,
+            object_name: "角色",
+        }
+        .into());
     }
     Ok(())
 }
@@ -681,51 +738,31 @@ async fn check_post_unique(
     Ok(())
 }
 
-async fn check_user_unique(
-    user_id: Option<i64>,
-    username: &str,
-    email: Option<&str>,
-    phone_number: Option<&str>,
-    db_pool: &PgPool,
-) -> anyhow::Result<()> {
+async fn check_username_unique(username: &str, db_pool: &PgPool) -> anyhow::Result<()> {
     let duplicated_username: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS (
             SELECT 1 FROM user_info
             WHERE username = $1
-              AND ($2::BIGINT IS NULL OR id <> $2)
               AND deleted = FALSE
         )
         "#,
     )
     .bind(username)
-    .bind(user_id)
     .fetch_one(db_pool)
     .await?;
     if duplicated_username {
-        return Err(anyhow::anyhow!("用户名已存在"));
+        return Err(SystemUserBusinessError::UsernameNotUnique.into());
     }
 
-    if let Some(email) = email.filter(|value| !value.is_empty()) {
-        let duplicated_email: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1 FROM user_info
-                WHERE email = $1
-                  AND ($2::BIGINT IS NULL OR id <> $2)
-                  AND deleted = FALSE
-            )
-            "#,
-        )
-        .bind(email)
-        .bind(user_id)
-        .fetch_one(db_pool)
-        .await?;
-        if duplicated_email {
-            return Err(anyhow::anyhow!("用户邮箱已存在"));
-        }
-    }
+    Ok(())
+}
 
+async fn check_phone_unique(
+    user_id: Option<i64>,
+    phone_number: Option<&str>,
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
     if let Some(phone_number) = phone_number.filter(|value| !value.is_empty()) {
         let duplicated_phone: bool = sqlx::query_scalar(
             r#"
@@ -742,7 +779,35 @@ async fn check_user_unique(
         .fetch_one(db_pool)
         .await?;
         if duplicated_phone {
-            return Err(anyhow::anyhow!("手机号码已存在"));
+            return Err(SystemUserBusinessError::PhoneNumberNotUnique.into());
+        }
+    }
+
+    Ok(())
+}
+
+async fn check_email_unique(
+    user_id: Option<i64>,
+    email: Option<&str>,
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
+    if let Some(email) = email.filter(|value| !value.is_empty()) {
+        let duplicated_email: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM user_info
+                WHERE email = $1
+                  AND ($2::BIGINT IS NULL OR id <> $2)
+                  AND deleted = FALSE
+            )
+            "#,
+        )
+        .bind(email)
+        .bind(user_id)
+        .fetch_one(db_pool)
+        .await?;
+        if duplicated_email {
+            return Err(SystemUserBusinessError::EmailNotUnique.into());
         }
     }
 
@@ -1368,17 +1433,31 @@ pub async fn list_system_users(
 }
 
 pub async fn get_system_user(user_id: i64, db_pool: &PgPool) -> anyhow::Result<SystemUserDTO> {
+    get_system_user_optional(user_id, db_pool)
+        .await?
+        .ok_or_else(|| {
+            SystemUserBusinessError::ObjectNotFound {
+                id: user_id,
+                object_name: "用户",
+            }
+            .into()
+        })
+}
+
+async fn get_system_user_optional(
+    user_id: i64,
+    db_pool: &PgPool,
+) -> anyhow::Result<Option<SystemUserDTO>> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(user_select_sql(false));
     query_builder.push(" AND u.id = ");
     query_builder.push_bind(user_id);
 
-    let row: SystemUserRow = query_builder
+    let row: Option<SystemUserRow> = query_builder
         .build_query_as()
         .fetch_optional(db_pool)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("用户不存在"))?;
+        .await?;
 
-    Ok(to_system_user_dto(row))
+    Ok(row.map(to_system_user_dto))
 }
 
 pub async fn get_user_profile(user_id: i64, db_pool: &PgPool) -> anyhow::Result<UserProfileDTO> {
@@ -1398,7 +1477,7 @@ pub async fn get_user_detail(
     db_pool: &PgPool,
 ) -> anyhow::Result<UserDetailDTO> {
     let user = if let Some(user_id) = user_id {
-        Some(get_system_user(user_id, db_pool).await?)
+        get_system_user_optional(user_id, db_pool).await?
     } else {
         None
     };
@@ -1485,14 +1564,8 @@ pub async fn update_user_profile(
         None => existing.email.clone(),
     };
 
-    check_user_unique(
-        Some(user_id),
-        &existing.username,
-        email.as_deref(),
-        phone_number.as_deref(),
-        db_pool,
-    )
-    .await?;
+    check_phone_unique(Some(user_id), phone_number.as_deref(), db_pool).await?;
+    check_email_unique(Some(user_id), email.as_deref(), db_pool).await?;
 
     let rows_affected = sqlx::query(
         r#"
@@ -1517,7 +1590,11 @@ pub async fn update_user_profile(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("用户不存在"));
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: user_id,
+            object_name: "用户",
+        }
+        .into());
     }
 
     Ok(())
@@ -1542,15 +1619,10 @@ pub async fn create_system_user(
         data.post_id,
         data.remark.as_deref(),
     )?;
+    check_username_unique(&user.username, db_pool).await?;
+    check_phone_unique(None, user.phone_number.as_deref(), db_pool).await?;
+    check_email_unique(None, user.email.as_deref(), db_pool).await?;
     ensure_user_relations(&user, db_pool).await?;
-    check_user_unique(
-        None,
-        &user.username,
-        user.email.as_deref(),
-        user.phone_number.as_deref(),
-        db_pool,
-    )
-    .await?;
 
     let mut tx = db_pool.begin().await?;
     let user_id: i64 = sqlx::query_scalar(
@@ -1618,15 +1690,9 @@ pub async fn update_system_user(
         data.post_id.or(existing.post_id),
         data.remark.as_deref().or(existing.remark.as_deref()),
     )?;
+    check_phone_unique(Some(path_user_id), user.phone_number.as_deref(), db_pool).await?;
+    check_email_unique(Some(path_user_id), user.email.as_deref(), db_pool).await?;
     ensure_user_relations(&user, db_pool).await?;
-    check_user_unique(
-        Some(path_user_id),
-        &user.username,
-        user.email.as_deref(),
-        user.phone_number.as_deref(),
-        db_pool,
-    )
-    .await?;
 
     let mut tx = db_pool.begin().await?;
     sqlx::query(
@@ -1690,6 +1756,8 @@ pub async fn update_system_user_password(
         return Err(anyhow::anyhow!("密码长度不能少于 8 位"));
     }
 
+    ensure_system_user_exists(user_id, db_pool).await?;
+
     let rows_affected = sqlx::query(
         r#"
         UPDATE user_info
@@ -1706,7 +1774,11 @@ pub async fn update_system_user_password(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("用户不存在"));
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: user_id,
+            object_name: "用户",
+        }
+        .into());
     }
 
     Ok(())
@@ -1787,6 +1859,8 @@ pub async fn update_system_user_status(
     }
     validate_user_status(data.status)?;
 
+    ensure_system_user_exists(user_id, db_pool).await?;
+
     let rows_affected = sqlx::query(
         r#"
         UPDATE user_info
@@ -1805,7 +1879,11 @@ pub async fn update_system_user_status(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("用户不存在"));
+        return Err(SystemUserBusinessError::ObjectNotFound {
+            id: user_id,
+            object_name: "用户",
+        }
+        .into());
     }
 
     Ok(())
@@ -1858,20 +1936,18 @@ pub async fn delete_system_users(
     if user_ids.iter().any(|id| *id <= 0) {
         return Err(anyhow::anyhow!("userIds 必须为正整数"));
     }
-    if let Some(current_user_id) = current_user_id
-        && user_ids.contains(&current_user_id)
-    {
-        return Err(anyhow::anyhow!("当前登录用户不能删除"));
-    }
 
-    let admin_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM user_info WHERE id = ANY($1) AND is_admin = TRUE AND deleted = FALSE",
-    )
-    .bind(user_ids)
-    .fetch_one(db_pool)
-    .await?;
-    if admin_count > 0 {
-        return Err(anyhow::anyhow!("超级管理员不允许删除"));
+    for user_id in user_ids {
+        let is_admin = system_user_admin_flag(*user_id, db_pool).await?.ok_or(
+            SystemUserBusinessError::ObjectNotFound {
+                id: *user_id,
+                object_name: "用户",
+            },
+        )?;
+
+        if current_user_id.is_some_and(|current_user_id| current_user_id == *user_id) || is_admin {
+            return Err(SystemUserBusinessError::CurrentUserCannotBeDeleted.into());
+        }
     }
 
     let mut tx = db_pool.begin().await?;
@@ -1925,9 +2001,9 @@ pub fn parse_id_list(value: &str, field_name: &str) -> anyhow::Result<Vec<i64>> 
 #[cfg(test)]
 mod tests {
     use super::{
-        SystemDeptBusinessError, SystemPostBusinessError, normalize_dept, normalize_post,
-        normalize_user, parse_id_list, parse_status_value, status_label, trim_optional,
-        user_status_to_login_status, validate_user_status,
+        SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError, normalize_dept,
+        normalize_post, normalize_user, parse_id_list, parse_status_value, status_label,
+        trim_optional, user_status_to_login_status, validate_user_status,
     };
 
     #[test]
@@ -1940,6 +2016,46 @@ mod tests {
     fn user_status_maps_to_login_status() {
         assert_eq!(user_status_to_login_status(1), "active");
         assert_eq!(user_status_to_login_status(0), "inactive");
+    }
+
+    #[test]
+    fn user_business_errors_match_keystone_messages() {
+        let cases = [
+            (
+                SystemUserBusinessError::ObjectNotFound {
+                    id: 5,
+                    object_name: "用户",
+                },
+                "找不到ID为 5 的 用户",
+            ),
+            (
+                SystemUserBusinessError::ObjectNotFound {
+                    id: 6,
+                    object_name: "职位",
+                },
+                "找不到ID为 6 的 职位",
+            ),
+            (
+                SystemUserBusinessError::UsernameNotUnique,
+                "用户名已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::PhoneNumberNotUnique,
+                "该电话号码已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::EmailNotUnique,
+                "该邮件地址已被其他用户占用",
+            ),
+            (
+                SystemUserBusinessError::CurrentUserCannotBeDeleted,
+                "当前用户不允许被删除",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

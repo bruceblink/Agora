@@ -357,35 +357,18 @@ Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token ver
 
 ### POST `/register`
 
-注册新用户（本地账号）。
+Keystone 兼容注册入口。Keystone 当前保留该路由但返回“不支持的操作”，Agora 同步该行为，不创建本地账号、不写入 Token Cookie。
 
 **无需认证**
-
-**请求体** `application/json`
-
-```json
-{
-  "username": "alice",
-  "password": "secret123",
-  "email": "alice@example.com"
-}
-```
-
-| 字段         | 类型     | 必填 | 说明               |
-|------------|--------|----|------------------|
-| `username` | string | ✓  | 用户名，不能为空        |
-| `password` | string | ✓  | 密码，至少 8 位       |
-| `email`    | string |    | 邮箱（可选）          |
 
 **响应** `200 OK`
 
 ```json
 {
-  "status": "ok",
-  "data": {
-    "userId": 1,
-    "username": "alice"
-  }
+  "code": 10002,
+  "msg": "不支持的操作",
+  "status": "error",
+  "message": "不支持的操作"
 }
 ```
 
@@ -1623,7 +1606,7 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 }
 ```
 
-本地 `/login` 成功/失败、`/logout` 和 `/register` 成功会写入该表。
+本地 `/login` 成功/失败与 `/logout` 会写入该表；`status=3` 保留为 Keystone 注册日志枚举值，但 `/register` 当前返回“不支持的操作”。
 
 ---
 

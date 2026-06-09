@@ -5,10 +5,31 @@ use common::dto::{CreateDictDataDTO, CreateDictTypeDTO, UpdateDictDataDTO, Updat
 use common::po::ApiResult;
 use common::{DictDataQuery, DictTypeQuery};
 use infra::{
-    create_dict_data, create_dict_type, delete_dict_data, delete_dict_type, get_config,
-    get_dict_data, get_dict_type, list_dict_data, list_dict_data_by_type, list_dict_types,
-    update_dict_data, update_dict_type,
+    SystemDictBusinessError, create_dict_data, create_dict_type, delete_dict_data,
+    delete_dict_type, get_config, get_dict_data, get_dict_type, list_dict_data,
+    list_dict_data_by_type, list_dict_types, update_dict_data, update_dict_type,
 };
+
+const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
+const KEYSTONE_DICT_TYPE_HAS_DATA_CODE: i32 = 11101;
+
+fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
+    ApiResponse {
+        code,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
+}
+
+fn dict_business_error_response(error: &SystemDictBusinessError) -> ApiResponse<()> {
+    let code = match error {
+        SystemDictBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemDictBusinessError::TypeHasData => KEYSTONE_DICT_TYPE_HAS_DATA_CODE,
+    };
+    business_error_response(code, error.to_string())
+}
 
 fn validate_status(status: i16) -> Result<(), ApiError> {
     if matches!(status, 0 | 1) {
@@ -100,6 +121,9 @@ async fn dict_type_get(
     match get_dict_type(dict_id, &app_state.db_pool).await {
         Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("查询字典类型 {dict_id} 失败: {e:?}");
             Err(ApiError::NotFound(format!("字典类型 {dict_id} 不存在")))
         }
@@ -142,6 +166,9 @@ async fn dict_type_update(
     match update_dict_type(dict_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("更新字典类型 {dict_id} 失败: {e:?}");
             Err(ApiError::BadRequest(format!("更新字典类型 {dict_id} 失败")))
         }
@@ -159,6 +186,9 @@ async fn dict_type_delete(
     match delete_dict_type(dict_id, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("删除字典类型 {dict_id} 失败: {e:?}");
             Err(ApiError::BadRequest(format!(
                 "删除字典类型 {dict_id} 失败，可能仍存在字典数据"
@@ -206,6 +236,9 @@ async fn dict_data_get(
     match get_dict_data(dict_code, &app_state.db_pool).await {
         Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("查询字典数据 {dict_code} 失败: {e:?}");
             Err(ApiError::NotFound(format!("字典数据 {dict_code} 不存在")))
         }
@@ -246,6 +279,9 @@ async fn dict_data_update(
     match update_dict_data(dict_code, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("更新字典数据 {dict_code} 失败: {e:?}");
             Err(ApiError::NotFound(format!("字典数据 {dict_code} 不存在")))
         }
@@ -263,6 +299,9 @@ async fn dict_data_delete(
     match delete_dict_data(dict_code, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDictBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dict_business_error_response(error)));
+            }
             tracing::error!("删除字典数据 {dict_code} 失败: {e:?}");
             Err(ApiError::NotFound(format!("字典数据 {dict_code} 不存在")))
         }
@@ -271,7 +310,12 @@ async fn dict_data_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_default_flag, validate_status};
+    use super::{
+        KEYSTONE_DICT_TYPE_HAS_DATA_CODE, KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        dict_business_error_response, validate_default_flag, validate_status,
+    };
+    use infra::SystemDictBusinessError;
+    use serde_json::json;
 
     #[test]
     fn validate_status_accepts_keystone_flags() {
@@ -285,5 +329,36 @@ mod tests {
         assert!(validate_default_flag(0).is_ok());
         assert!(validate_default_flag(1).is_ok());
         assert!(validate_default_flag(-1).is_err());
+    }
+
+    #[test]
+    fn dict_object_not_found_response_matches_keystone_business_error() {
+        let value = serde_json::to_value(dict_business_error_response(
+            &SystemDictBusinessError::ObjectNotFound {
+                id: 9,
+                object_name: "字典数据",
+            },
+        ))
+        .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], KEYSTONE_OBJECT_NOT_FOUND_CODE);
+        assert_eq!(value["msg"], "找不到ID为 9 的 字典数据");
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["message"], "找不到ID为 9 的 字典数据");
+        assert!(value.get("data").is_none());
+    }
+
+    #[test]
+    fn dict_type_has_data_response_matches_keystone_business_error() {
+        let value = serde_json::to_value(dict_business_error_response(
+            &SystemDictBusinessError::TypeHasData,
+        ))
+        .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], KEYSTONE_DICT_TYPE_HAS_DATA_CODE);
+        assert_eq!(value["msg"], "字典类型下存在字典数据，请先删除字典数据");
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["message"], "字典类型下存在字典数据，请先删除字典数据");
+        assert!(value.get("data").is_none());
     }
 }

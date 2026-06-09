@@ -6,6 +6,7 @@ use common::po::PageData;
 use common::{DictDataQuery, DictTypeQuery};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 
 const DEFAULT_PAGE: u32 = 1;
 const DEFAULT_PAGE_SIZE: u32 = 20;
@@ -44,6 +45,31 @@ struct DictDataMapRow {
     dict_value: String,
     list_class: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemDictBusinessError {
+    ObjectNotFound { id: i64, object_name: &'static str },
+    TypeHasData,
+}
+
+impl SystemDictBusinessError {
+    fn object_not_found(id: i64, object_name: &'static str) -> Self {
+        Self::ObjectNotFound { id, object_name }
+    }
+}
+
+impl fmt::Display for SystemDictBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id, object_name } => {
+                write!(f, "找不到ID为 {id} 的 {object_name}")
+            }
+            Self::TypeHasData => f.write_str("字典类型下存在字典数据，请先删除字典数据"),
+        }
+    }
+}
+
+impl std::error::Error for SystemDictBusinessError {}
 
 fn page_bounds(page: Option<u32>, page_size: Option<u32>) -> (u32, u32, i64) {
     let page = page.unwrap_or(DEFAULT_PAGE).max(1);
@@ -145,7 +171,10 @@ pub async fn get_dict_type(dict_id: i64, db_pool: &PgPool) -> anyhow::Result<Dic
     .bind(dict_id)
     .fetch_optional(db_pool)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("字典类型不存在"))?;
+    .ok_or(SystemDictBusinessError::object_not_found(
+        dict_id,
+        "字典类型",
+    ))?;
 
     Ok(row)
 }
@@ -178,7 +207,10 @@ pub async fn update_dict_type(
             .bind(dict_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("字典类型不存在"))?;
+            .ok_or(SystemDictBusinessError::object_not_found(
+                dict_id,
+                "字典类型",
+            ))?;
 
     let rows_affected = sqlx::query(
         r#"
@@ -200,7 +232,7 @@ pub async fn update_dict_type(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("字典类型不存在"));
+        return Err(SystemDictBusinessError::object_not_found(dict_id, "字典类型").into());
     }
 
     if old_dict_type != data.dict_type {
@@ -222,7 +254,10 @@ pub async fn delete_dict_type(dict_id: i64, db_pool: &PgPool) -> anyhow::Result<
             .bind(dict_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("字典类型不存在"))?;
+            .ok_or(SystemDictBusinessError::object_not_found(
+                dict_id,
+                "字典类型",
+            ))?;
 
     let data_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sys_dict_data WHERE dict_type = $1")
@@ -231,7 +266,7 @@ pub async fn delete_dict_type(dict_id: i64, db_pool: &PgPool) -> anyhow::Result<
             .await?;
 
     if data_count > 0 {
-        return Err(anyhow::anyhow!("字典类型存在数据，不能删除"));
+        return Err(SystemDictBusinessError::TypeHasData.into());
     }
 
     sqlx::query("DELETE FROM sys_dict_type WHERE dict_id = $1")
@@ -327,7 +362,10 @@ pub async fn get_dict_data(dict_code: i64, db_pool: &PgPool) -> anyhow::Result<D
     .bind(dict_code)
     .fetch_optional(db_pool)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("字典数据不存在"))?;
+    .ok_or(SystemDictBusinessError::object_not_found(
+        dict_code,
+        "字典数据",
+    ))?;
 
     Ok(row)
 }
@@ -392,7 +430,7 @@ pub async fn update_dict_data(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("字典数据不存在"));
+        return Err(SystemDictBusinessError::object_not_found(dict_code, "字典数据").into());
     }
 
     Ok(())
@@ -406,7 +444,7 @@ pub async fn delete_dict_data(dict_code: i64, db_pool: &PgPool) -> anyhow::Resul
         .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("字典数据不存在"));
+        return Err(SystemDictBusinessError::object_not_found(dict_code, "字典数据").into());
     }
 
     Ok(())
@@ -476,7 +514,7 @@ pub async fn get_config(db_pool: &PgPool) -> anyhow::Result<ConfigDTO> {
 
 #[cfg(test)]
 mod tests {
-    use super::{page_bounds, total_pages};
+    use super::{SystemDictBusinessError, page_bounds, total_pages};
 
     #[test]
     fn page_bounds_defaults_to_first_page() {
@@ -492,5 +530,17 @@ mod tests {
     fn total_pages_rounds_up() {
         assert_eq!(total_pages(21, 20), 2);
         assert_eq!(total_pages(0, 20), 0);
+    }
+
+    #[test]
+    fn business_errors_match_keystone_messages() {
+        assert_eq!(
+            SystemDictBusinessError::object_not_found(7, "字典类型").to_string(),
+            "找不到ID为 7 的 字典类型"
+        );
+        assert_eq!(
+            SystemDictBusinessError::TypeHasData.to_string(),
+            "字典类型下存在字典数据，请先删除字典数据"
+        );
     }
 }

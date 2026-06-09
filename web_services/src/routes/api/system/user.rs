@@ -2,7 +2,9 @@ use crate::common::AppState;
 use crate::routes::api::export::{
     EXPORT_PAGE_SIZE, datetime, optional, optional_datetime, xlsx_from_rows, xlsx_response,
 };
+use actix_multipart::Multipart;
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, post, put, web};
+use calamine::{Data, Reader, open_workbook_auto_from_rs};
 use common::api::{ApiError, ApiResponse};
 use common::dto::{
     CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, PostDTO, ResetUserPasswordDTO,
@@ -11,6 +13,7 @@ use common::dto::{
 use common::po::ApiResult;
 use common::utils::JwtClaims;
 use common::{DeptQuery, PostQuery, SystemUserQuery};
+use futures_util::StreamExt;
 use infra::{
     create_dept, create_post, create_system_user, delete_dept, delete_posts, delete_system_users,
     get_dept, get_post, get_user_detail, list_depts, list_posts, list_system_users, parse_id_list,
@@ -18,11 +21,65 @@ use infra::{
     update_system_user_status,
 };
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::io::Cursor;
+
+const USER_IMPORT_MAX_BYTES: usize = 5 * 1024 * 1024;
+const USER_IMPORT_HEADERS: [&str; 12] = [
+    "部门ID",
+    "用户名",
+    "昵称",
+    "邮件",
+    "电话号码",
+    "性别",
+    "头像",
+    "密码",
+    "状态",
+    "角色ID",
+    "职位ID",
+    "备注",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeletePostQuery {
     ids: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ImportUserRow {
+    row_number: usize,
+    dept_id: Option<i64>,
+    username: String,
+    nickname: Option<String>,
+    email: Option<String>,
+    phone_number: Option<String>,
+    sex: Option<i16>,
+    avatar: Option<String>,
+    password: String,
+    status: Option<i16>,
+    role_id: Option<i64>,
+    post_id: Option<i64>,
+    remark: Option<String>,
+}
+
+impl From<ImportUserRow> for CreateSystemUserDTO {
+    fn from(row: ImportUserRow) -> Self {
+        Self {
+            dept_id: row.dept_id,
+            username: row.username,
+            nickname: row.nickname,
+            email: row.email,
+            phone_number: row.phone_number,
+            sex: row.sex,
+            avatar: row.avatar,
+            password: row.password,
+            status: row.status,
+            role_id: row.role_id,
+            post_id: row.post_id,
+            remark: row.remark,
+        }
+    }
 }
 
 fn current_user_id(req: &HttpRequest) -> Option<i64> {
@@ -97,6 +154,189 @@ fn user_export_row(item: &SystemUserDTO) -> Vec<String> {
         optional_datetime(&item.update_time),
         optional(&item.remark),
     ]
+}
+
+fn cell_string(cell: Option<&Data>) -> String {
+    cell.map(ToString::to_string)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn blank_to_none(value: String) -> Option<String> {
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn parse_optional_i64(
+    value: String,
+    field_name: &str,
+    row_number: usize,
+) -> Result<Option<i64>, ApiError> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<i64>()
+        .map(Some)
+        .map_err(|_| ApiError::BadRequest(format!("第 {row_number} 行 {field_name} 必须为整数")))
+}
+
+fn parse_optional_i16(
+    value: String,
+    field_name: &str,
+    row_number: usize,
+) -> Result<Option<i16>, ApiError> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<i16>()
+        .map(Some)
+        .map_err(|_| ApiError::BadRequest(format!("第 {row_number} 行 {field_name} 必须为整数")))
+}
+
+fn row_is_empty(row: &[Data]) -> bool {
+    row.iter().all(|cell| cell.to_string().trim().is_empty())
+}
+
+fn header_indexes(header_row: &[Data]) -> Result<HashMap<&'static str, usize>, ApiError> {
+    let headers = header_row
+        .iter()
+        .enumerate()
+        .map(|(idx, cell)| (cell.to_string().trim().to_string(), idx))
+        .collect::<HashMap<_, _>>();
+
+    let mut indexes = HashMap::new();
+    for expected in USER_IMPORT_HEADERS {
+        let Some(index) = headers.get(expected).copied() else {
+            return Err(ApiError::BadRequest(format!("Excel 缺少表头：{expected}")));
+        };
+        indexes.insert(expected, index);
+    }
+    Ok(indexes)
+}
+
+fn required_cell(
+    row: &[Data],
+    indexes: &HashMap<&'static str, usize>,
+    field_name: &'static str,
+    row_number: usize,
+) -> Result<String, ApiError> {
+    let value = cell_string(indexes.get(field_name).and_then(|idx| row.get(*idx)));
+    if value.is_empty() {
+        Err(ApiError::BadRequest(format!(
+            "第 {row_number} 行 {field_name} 不能为空"
+        )))
+    } else {
+        Ok(value)
+    }
+}
+
+fn optional_cell(
+    row: &[Data],
+    indexes: &HashMap<&'static str, usize>,
+    field_name: &'static str,
+) -> String {
+    cell_string(indexes.get(field_name).and_then(|idx| row.get(*idx)))
+}
+
+fn parse_import_user_row(
+    row: &[Data],
+    indexes: &HashMap<&'static str, usize>,
+    row_number: usize,
+) -> Result<ImportUserRow, ApiError> {
+    let username = required_cell(row, indexes, "用户名", row_number)?;
+    let password = required_cell(row, indexes, "密码", row_number)?;
+
+    Ok(ImportUserRow {
+        row_number,
+        dept_id: parse_optional_i64(optional_cell(row, indexes, "部门ID"), "部门ID", row_number)?,
+        username,
+        nickname: blank_to_none(optional_cell(row, indexes, "昵称")),
+        email: blank_to_none(optional_cell(row, indexes, "邮件")),
+        phone_number: blank_to_none(optional_cell(row, indexes, "电话号码")),
+        sex: parse_optional_i16(optional_cell(row, indexes, "性别"), "性别", row_number)?,
+        avatar: blank_to_none(optional_cell(row, indexes, "头像")),
+        password,
+        status: parse_optional_i16(optional_cell(row, indexes, "状态"), "状态", row_number)?,
+        role_id: parse_optional_i64(optional_cell(row, indexes, "角色ID"), "角色ID", row_number)?,
+        post_id: parse_optional_i64(optional_cell(row, indexes, "职位ID"), "职位ID", row_number)?,
+        remark: blank_to_none(optional_cell(row, indexes, "备注")),
+    })
+}
+
+fn parse_import_users_excel(bytes: &[u8]) -> Result<Vec<ImportUserRow>, ApiError> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mut workbook = open_workbook_auto_from_rs(cursor).map_err(|e| {
+        tracing::warn!("解析用户导入 Excel 失败: {e}");
+        ApiError::BadRequest("用户 Excel 文件格式不正确，请使用系统下载的模板".into())
+    })?;
+    let range = workbook
+        .worksheet_range_at(0)
+        .ok_or_else(|| ApiError::BadRequest("用户 Excel 文件缺少工作表".into()))?
+        .map_err(|e| {
+            tracing::warn!("读取用户导入 Excel 工作表失败: {e}");
+            ApiError::BadRequest("用户 Excel 文件格式不正确".into())
+        })?;
+    let mut rows = range.rows();
+    let header_row = rows
+        .next()
+        .ok_or_else(|| ApiError::BadRequest("用户 Excel 文件缺少表头".into()))?;
+    let indexes = header_indexes(header_row)?;
+
+    let mut users = Vec::new();
+    for (idx, row) in rows.enumerate() {
+        if row_is_empty(row) {
+            continue;
+        }
+        users.push(parse_import_user_row(row, &indexes, idx + 2)?);
+    }
+
+    if users.is_empty() {
+        return Err(ApiError::BadRequest("用户 Excel 文件没有可导入数据".into()));
+    }
+    Ok(users)
+}
+
+async fn read_user_import_file(mut payload: Multipart) -> Result<Vec<u8>, ApiError> {
+    while let Some(item) = payload.next().await {
+        let mut field = item.map_err(|e| {
+            tracing::warn!("读取用户导入 multipart 字段失败: {e}");
+            ApiError::BadRequest("上传文件失败".into())
+        })?;
+        if field.name() != Some("file") {
+            continue;
+        }
+
+        let filename = field
+            .content_disposition()
+            .and_then(|disposition| disposition.get_filename())
+            .unwrap_or_default();
+        let filename = filename.to_ascii_lowercase();
+        if !filename.ends_with(".xlsx") && !filename.ends_with(".xls") {
+            return Err(ApiError::BadRequest(
+                "用户导入仅支持 xls 或 xlsx 文件".into(),
+            ));
+        }
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field.next().await {
+            let chunk = chunk.map_err(|e| {
+                tracing::warn!("读取用户导入文件失败: {e}");
+                ApiError::BadRequest("上传文件失败".into())
+            })?;
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > USER_IMPORT_MAX_BYTES {
+                return Err(ApiError::BadRequest("用户导入文件大小不能超过 5MB".into()));
+            }
+        }
+        if bytes.is_empty() {
+            return Err(ApiError::BadRequest("上传文件不能为空".into()));
+        }
+        return Ok(bytes);
+    }
+
+    Err(ApiError::BadRequest("上传文件不能为空".into()))
 }
 
 #[get("/system/depts")]
@@ -429,11 +669,38 @@ async fn users_excel_template(req: HttpRequest, app_state: web::Data<AppState>) 
 }
 
 #[post("/system/users/excel")]
-async fn users_import(req: HttpRequest, app_state: web::Data<AppState>) -> ApiResult {
+async fn users_import(
+    req: HttpRequest,
+    payload: Multipart,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    Err(ApiError::BadRequest(
-        "用户 Excel 导入暂不支持，请使用新增用户接口".into(),
-    ))
+    let bytes = read_user_import_file(payload).await?;
+    let rows = parse_import_users_excel(&bytes)?;
+    let creator_id = current_user_id(&req);
+
+    for row in rows {
+        let row_number = row.row_number;
+        let data = CreateSystemUserDTO::from(row);
+        let password_hash = match hash_password(&data.password) {
+            Ok(hash) => hash,
+            Err(ApiError::BadRequest(message)) => {
+                return Err(ApiError::BadRequest(format!(
+                    "第 {row_number} 行 {message}"
+                )));
+            }
+            Err(e) => return Err(e),
+        };
+
+        create_system_user(&data, &password_hash, creator_id, &app_state.db_pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("导入用户第 {row_number} 行失败: {e:?}");
+                ApiError::BadRequest(format!("第 {row_number} 行导入失败: {e}"))
+            })?;
+    }
+
+    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(())))
 }
 
 #[get("/system/users/{user_id}")]
@@ -566,8 +833,13 @@ async fn users_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_password, user_export_row, validate_positive_id};
+    use super::{
+        USER_IMPORT_HEADERS, hash_password, parse_import_users_excel, user_export_row,
+        validate_positive_id,
+    };
+    use crate::routes::api::export::xlsx_from_rows;
     use chrono::Utc;
+    use common::api::ApiError;
     use common::dto::SystemUserDTO;
 
     #[test]
@@ -612,5 +884,49 @@ mod tests {
 
         assert_eq!(row[12], "2");
         assert_eq!(row[14], "1");
+    }
+
+    #[test]
+    fn parse_import_users_excel_maps_keystone_template_headers() {
+        let rows = vec![vec![
+            "1".to_string(),
+            "demo".to_string(),
+            "演示用户".to_string(),
+            "demo@example.com".to_string(),
+            "15800000000".to_string(),
+            "2".to_string(),
+            String::new(),
+            "password123".to_string(),
+            "1".to_string(),
+            "2".to_string(),
+            "4".to_string(),
+            "备注".to_string(),
+        ]];
+        let bytes = xlsx_from_rows("Sheet1", &USER_IMPORT_HEADERS, &rows).unwrap();
+
+        let users = parse_import_users_excel(&bytes).unwrap();
+
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].row_number, 2);
+        assert_eq!(users[0].dept_id, Some(1));
+        assert_eq!(users[0].username, "demo");
+        assert_eq!(users[0].nickname.as_deref(), Some("演示用户"));
+        assert_eq!(users[0].sex, Some(2));
+        assert_eq!(users[0].status, Some(1));
+        assert_eq!(users[0].role_id, Some(2));
+        assert_eq!(users[0].post_id, Some(4));
+    }
+
+    #[test]
+    fn parse_import_users_excel_rejects_missing_headers() {
+        let rows = vec![vec!["demo".to_string()]];
+        let bytes = xlsx_from_rows("Sheet1", &["用户名"], &rows).unwrap();
+
+        let err = parse_import_users_excel(&bytes).unwrap_err();
+
+        match err {
+            ApiError::BadRequest(message) => assert!(message.contains("Excel 缺少表头")),
+            _ => panic!("expected bad request"),
+        }
     }
 }

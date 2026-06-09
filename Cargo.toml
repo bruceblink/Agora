@@ -54,6 +54,7 @@ thiserror = "2"
 rand = { version = "0.9", features = ["std"] }
 rsa = { version = "0.9.10", features = ["pem"] }
 rust_xlsxwriter = "0.95.0"
+calamine = "0.35.0"
 oauth2 = { version = "4", features = ["reqwest"] }
 jsonwebtoken = "9.3"
 regex = "1.11.1"

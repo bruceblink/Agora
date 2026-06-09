@@ -1311,9 +1311,11 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### POST `/api/system/users/excel`
 
-用户 Excel 导入入口。当前接口会返回 `400 Bad Request`，导入处理后续随用户批量导入功能补齐。
+用户 Excel 导入入口。使用 `multipart/form-data` 上传字段名 `file`，表头需与下载模板一致；导入时逐行创建系统用户。
 
 **需要认证，仅管理员**
+
+**响应** `200 OK` → `ResponseDTO<Void>`
 
 ---
 

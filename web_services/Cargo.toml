@@ -42,5 +42,6 @@ rand.workspace = true
 mime.workspace = true
 sysinfo.workspace = true
 rust_xlsxwriter.workspace = true
+calamine.workspace = true
 infra = {path = "../infra"}
 service = {path = "../service"}

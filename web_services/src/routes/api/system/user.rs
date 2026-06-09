@@ -7,19 +7,19 @@ use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, post, put, 
 use calamine::{Data, Reader, open_workbook_auto_from_rs};
 use common::api::{ApiError, ApiResponse};
 use common::dto::{
-    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, PostResponseDTO,
-    ResetUserPasswordDTO, SystemUserDTO, UpdateDeptDTO, UpdatePostDTO, UpdateSystemUserDTO,
-    UpdateUserStatusDTO,
+    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, DeptResponseDTO, PostDTO,
+    PostResponseDTO, ResetUserPasswordDTO, SystemUserDTO, UpdateDeptDTO, UpdatePostDTO,
+    UpdateSystemUserDTO, UpdateUserStatusDTO,
 };
 use common::po::ApiResult;
 use common::utils::JwtClaims;
 use common::{DeptQuery, PostQuery, SystemUserQuery};
 use futures_util::StreamExt;
 use infra::{
-    SystemPostBusinessError, create_dept, create_post, create_system_user, delete_dept,
-    delete_posts, delete_system_users, get_dept, get_post, get_user_detail, list_depts, list_posts,
-    list_system_users, parse_id_list, update_dept, update_post, update_system_user,
-    update_system_user_password, update_system_user_status,
+    SystemDeptBusinessError, SystemPostBusinessError, create_dept, create_post, create_system_user,
+    delete_dept, delete_posts, delete_system_users, get_dept, get_post, get_user_detail,
+    list_depts, list_posts, list_system_users, parse_id_list, update_dept, update_post,
+    update_system_user, update_system_user_password, update_system_user_status,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,6 +45,12 @@ const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
 const KEYSTONE_POST_NAME_NOT_UNIQUE_CODE: i32 = 10701;
 const KEYSTONE_POST_CODE_NOT_UNIQUE_CODE: i32 = 10702;
 const KEYSTONE_POST_ASSIGNED_TO_USER_CODE: i32 = 10703;
+const KEYSTONE_DEPT_NAME_NOT_UNIQUE_CODE: i32 = 10801;
+const KEYSTONE_DEPT_PARENT_SELF_CODE: i32 = 10802;
+const KEYSTONE_DEPT_STATUS_CHANGE_CODE: i32 = 10803;
+const KEYSTONE_DEPT_HAS_CHILD_CODE: i32 = 10804;
+const KEYSTONE_DEPT_LINKED_USER_CODE: i32 = 10805;
+const KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE: i32 = 10806;
 
 fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
     ApiResponse {
@@ -62,6 +68,19 @@ fn post_business_error_response(error: &SystemPostBusinessError) -> ApiResponse<
         SystemPostBusinessError::NameNotUnique { .. } => KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
         SystemPostBusinessError::CodeNotUnique { .. } => KEYSTONE_POST_CODE_NOT_UNIQUE_CODE,
         SystemPostBusinessError::AlreadyAssignedToUser => KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
+    };
+    business_error_response(code, error.to_string())
+}
+
+fn dept_business_error_response(error: &SystemDeptBusinessError) -> ApiResponse<()> {
+    let code = match error {
+        SystemDeptBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemDeptBusinessError::NameNotUnique { .. } => KEYSTONE_DEPT_NAME_NOT_UNIQUE_CODE,
+        SystemDeptBusinessError::ParentIdNotAllowSelf => KEYSTONE_DEPT_PARENT_SELF_CODE,
+        SystemDeptBusinessError::StatusNotAllowChange => KEYSTONE_DEPT_STATUS_CHANGE_CODE,
+        SystemDeptBusinessError::HasChildDept => KEYSTONE_DEPT_HAS_CHILD_CODE,
+        SystemDeptBusinessError::HasLinkedUser => KEYSTONE_DEPT_LINKED_USER_CODE,
+        SystemDeptBusinessError::ParentDeptUnavailable => KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE,
     };
     business_error_response(code, error.to_string())
 }
@@ -407,7 +426,7 @@ async fn depts_list(
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
     match list_depts(&query.into_inner(), &app_state.db_pool).await {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(dept_tree_nodes(&data)))),
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
         Err(e) => {
             tracing::error!("查询部门列表失败: {e:?}");
             Err(ApiError::Database("查询部门列表失败".into()))
@@ -429,7 +448,7 @@ async fn depts_dropdown(req: HttpRequest, app_state: web::Data<AppState>) -> Api
     )
     .await
     {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(dept_tree_nodes(&data)))),
         Err(e) => {
             tracing::error!("查询部门下拉树失败: {e:?}");
             Err(ApiError::Database("查询部门下拉树失败".into()))
@@ -448,10 +467,11 @@ async fn dept_get(
     validate_positive_id(dept_id, "deptId")?;
 
     match get_dept(dept_id, &app_state.db_pool).await {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(Some(data)) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(None) => Ok(HttpResponse::Ok().json(ApiResponse::ok(DeptResponseDTO::empty()))),
         Err(e) => {
             tracing::error!("查询部门 {dept_id} 失败: {e:?}");
-            Err(ApiError::NotFound(format!("部门 {dept_id} 不存在")))
+            Err(ApiError::Database("查询部门失败".into()))
         }
     }
 }
@@ -468,6 +488,9 @@ async fn dept_create(
     match create_dept(&data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDeptBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dept_business_error_response(error)));
+            }
             tracing::error!("新增部门失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -489,6 +512,9 @@ async fn dept_update(
     match update_dept(dept_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDeptBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dept_business_error_response(error)));
+            }
             tracing::error!("更新部门 {dept_id} 失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -508,6 +534,9 @@ async fn dept_delete(
     match delete_dept(dept_id, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemDeptBusinessError>() {
+                return Ok(HttpResponse::Ok().json(dept_business_error_response(error)));
+            }
             tracing::error!("删除部门 {dept_id} 失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -904,16 +933,20 @@ async fn users_delete(
 #[cfg(test)]
 mod tests {
     use super::{
+        KEYSTONE_DEPT_HAS_CHILD_CODE, KEYSTONE_DEPT_LINKED_USER_CODE,
+        KEYSTONE_DEPT_NAME_NOT_UNIQUE_CODE, KEYSTONE_DEPT_PARENT_SELF_CODE,
+        KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE, KEYSTONE_DEPT_STATUS_CHANGE_CODE,
         KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
         KEYSTONE_POST_CODE_NOT_UNIQUE_CODE, KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
-        USER_IMPORT_HEADERS, dept_tree_nodes, hash_password, parse_import_users_excel,
-        post_business_error_response, user_export_row, validate_positive_id,
+        USER_IMPORT_HEADERS, dept_business_error_response, dept_tree_nodes, hash_password,
+        parse_import_users_excel, post_business_error_response, user_export_row,
+        validate_positive_id,
     };
     use crate::routes::api::export::xlsx_from_rows;
     use chrono::Utc;
     use common::api::{ApiError, ApiResponse};
-    use common::dto::{DeptDTO, PostResponseDTO, SystemUserDTO};
-    use infra::SystemPostBusinessError;
+    use common::dto::{DeptDTO, DeptResponseDTO, PostResponseDTO, SystemUserDTO};
+    use infra::{SystemDeptBusinessError, SystemPostBusinessError};
     use serde_json::json;
 
     #[test]
@@ -925,6 +958,72 @@ mod tests {
     #[test]
     fn hash_password_rejects_short_password() {
         assert!(hash_password("short").is_err());
+    }
+
+    #[test]
+    fn missing_dept_detail_matches_keystone_empty_success() {
+        let value = serde_json::to_value(ApiResponse::ok(DeptResponseDTO::empty()))
+            .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], 0);
+        assert_eq!(value["msg"], "操作成功");
+        assert_eq!(value["status"], "ok");
+        assert!(value["data"].is_object());
+        assert!(value["data"]["id"].is_null());
+        assert!(value["data"]["deptName"].is_null());
+    }
+
+    #[test]
+    fn dept_business_responses_match_keystone_errors() {
+        let cases = [
+            (
+                SystemDeptBusinessError::ObjectNotFound { id: 9 },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 9 的 部门",
+            ),
+            (
+                SystemDeptBusinessError::NameNotUnique {
+                    dept_name: "研发部".to_string(),
+                },
+                KEYSTONE_DEPT_NAME_NOT_UNIQUE_CODE,
+                "部门名称:研发部, 已存在",
+            ),
+            (
+                SystemDeptBusinessError::ParentIdNotAllowSelf,
+                KEYSTONE_DEPT_PARENT_SELF_CODE,
+                "父级部门不能选择自己",
+            ),
+            (
+                SystemDeptBusinessError::StatusNotAllowChange,
+                KEYSTONE_DEPT_STATUS_CHANGE_CODE,
+                "子部门还有正在启用的部门，暂时不能停用该部门",
+            ),
+            (
+                SystemDeptBusinessError::HasChildDept,
+                KEYSTONE_DEPT_HAS_CHILD_CODE,
+                "该部门存在下级部门不允许删除",
+            ),
+            (
+                SystemDeptBusinessError::HasLinkedUser,
+                KEYSTONE_DEPT_LINKED_USER_CODE,
+                "该部门存在关联的用户不允许删除",
+            ),
+            (
+                SystemDeptBusinessError::ParentDeptUnavailable,
+                KEYSTONE_DEPT_PARENT_UNAVAILABLE_CODE,
+                "该父级部门不存在或已停用",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            let value = serde_json::to_value(dept_business_error_response(&error))
+                .unwrap_or_else(|_| json!(null));
+            assert_eq!(value["code"], code);
+            assert_eq!(value["msg"], message);
+            assert_eq!(value["message"], message);
+            assert_eq!(value["status"], "error");
+            assert!(value.get("data").is_none());
+        }
     }
 
     #[test]

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
 use common::dto::{
-    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, PostResponseDTO,
-    ResetUserPasswordDTO, RoleDTO, SystemUserDTO, UpdateDeptDTO, UpdateOwnPasswordDTO,
-    UpdatePostDTO, UpdateProfileDTO, UpdateSystemUserDTO, UpdateUserStatusDTO, UserDetailDTO,
-    UserProfileDTO,
+    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, DeptResponseDTO, PostDTO,
+    PostResponseDTO, ResetUserPasswordDTO, RoleDTO, SystemUserDTO, UpdateDeptDTO,
+    UpdateOwnPasswordDTO, UpdatePostDTO, UpdateProfileDTO, UpdateSystemUserDTO,
+    UpdateUserStatusDTO, UserDetailDTO, UserProfileDTO,
 };
 use common::po::PageData;
 use common::{DeptQuery, PostQuery, RoleQuery, SystemUserQuery};
@@ -117,6 +117,35 @@ struct NormalizedDept {
     email: Option<String>,
     status: i16,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemDeptBusinessError {
+    ObjectNotFound { id: i64 },
+    NameNotUnique { dept_name: String },
+    ParentIdNotAllowSelf,
+    StatusNotAllowChange,
+    HasChildDept,
+    HasLinkedUser,
+    ParentDeptUnavailable,
+}
+
+impl fmt::Display for SystemDeptBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id } => write!(f, "找不到ID为 {id} 的 部门"),
+            Self::NameNotUnique { dept_name } => write!(f, "部门名称:{dept_name}, 已存在"),
+            Self::ParentIdNotAllowSelf => f.write_str("父级部门不能选择自己"),
+            Self::StatusNotAllowChange => {
+                f.write_str("子部门还有正在启用的部门，暂时不能停用该部门")
+            }
+            Self::HasChildDept => f.write_str("该部门存在下级部门不允许删除"),
+            Self::HasLinkedUser => f.write_str("该部门存在关联的用户不允许删除"),
+            Self::ParentDeptUnavailable => f.write_str("该父级部门不存在或已停用"),
+        }
+    }
+}
+
+impl std::error::Error for SystemDeptBusinessError {}
 
 #[derive(Debug)]
 struct NormalizedPost {
@@ -545,7 +574,10 @@ async fn check_dept_name_unique(
     .await?;
 
     if duplicated {
-        Err(anyhow::anyhow!("同级部门名称已存在"))
+        Err(SystemDeptBusinessError::NameNotUnique {
+            dept_name: dept_name.to_string(),
+        }
+        .into())
     } else {
         Ok(())
     }
@@ -722,13 +754,18 @@ async fn ancestors_for_parent(parent_id: i64, db_pool: &PgPool) -> anyhow::Resul
         return Ok("0".to_string());
     }
 
-    let parent: Option<(String,)> =
-        sqlx::query_as("SELECT ancestors FROM sys_dept WHERE dept_id = $1 AND deleted = FALSE")
-            .bind(parent_id)
-            .fetch_optional(db_pool)
-            .await?;
+    let parent: Option<(String, i16)> = sqlx::query_as(
+        "SELECT ancestors, status FROM sys_dept WHERE dept_id = $1 AND deleted = FALSE",
+    )
+    .bind(parent_id)
+    .fetch_optional(db_pool)
+    .await?;
 
-    let (parent_ancestors,) = parent.ok_or_else(|| anyhow::anyhow!("上级部门不存在"))?;
+    let (parent_ancestors, parent_status) =
+        parent.ok_or(SystemDeptBusinessError::ParentDeptUnavailable)?;
+    if parent_status == 0 {
+        return Err(SystemDeptBusinessError::ParentDeptUnavailable.into());
+    }
     Ok(format!("{parent_ancestors},{parent_id}"))
 }
 
@@ -812,7 +849,7 @@ pub async fn list_depts(query: &DeptQuery, db_pool: &PgPool) -> anyhow::Result<V
     Ok(rows.into_iter().map(to_dept_dto).collect())
 }
 
-pub async fn get_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<DeptDTO> {
+pub async fn get_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<Option<DeptResponseDTO>> {
     let row = sqlx::query_as::<_, DeptRow>(
         r#"
         SELECT dept_id AS id, parent_id, dept_name, order_num, leader_name,
@@ -824,10 +861,9 @@ pub async fn get_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<DeptDTO>
     )
     .bind(dept_id)
     .fetch_optional(db_pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("部门不存在"))?;
+    .await?;
 
-    Ok(to_dept_dto(row))
+    Ok(row.map(to_dept_dto).map(DeptResponseDTO::from))
 }
 
 pub async fn create_dept(data: &CreateDeptDTO, db_pool: &PgPool) -> anyhow::Result<()> {
@@ -874,6 +910,9 @@ pub async fn update_dept(
     if data.dept_id.or(data.id).is_some_and(|id| id != dept_id) {
         return Err(anyhow::anyhow!("路径 deptId 与请求体不一致"));
     }
+    if !dept_exists(dept_id, db_pool).await? {
+        return Err(SystemDeptBusinessError::ObjectNotFound { id: dept_id }.into());
+    }
 
     let dept = normalize_dept(
         data.parent_id,
@@ -884,15 +923,30 @@ pub async fn update_dept(
         data.email.as_deref(),
         data.status,
     )?;
+    check_dept_name_unique(Some(dept_id), &dept.dept_name, dept.parent_id, db_pool).await?;
     if dept_id == dept.parent_id {
-        return Err(anyhow::anyhow!("上级部门不能选择自身"));
+        return Err(SystemDeptBusinessError::ParentIdNotAllowSelf.into());
     }
 
-    let exists = dept_exists(dept_id, db_pool).await?;
-    if !exists {
-        return Err(anyhow::anyhow!("部门不存在"));
+    if dept.status == 0 {
+        let has_enabled_child: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM sys_dept
+                WHERE parent_id = $1
+                  AND status = 1
+                  AND deleted = FALSE
+            )
+            "#,
+        )
+        .bind(dept_id)
+        .fetch_one(db_pool)
+        .await?;
+        if has_enabled_child {
+            return Err(SystemDeptBusinessError::StatusNotAllowChange.into());
+        }
     }
-    check_dept_name_unique(Some(dept_id), &dept.dept_name, dept.parent_id, db_pool).await?;
     let ancestors = ancestors_for_parent(dept.parent_id, db_pool).await?;
 
     sqlx::query(
@@ -930,7 +984,7 @@ pub async fn delete_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("deptId 必须为正整数"));
     }
     if !dept_exists(dept_id, db_pool).await? {
-        return Err(anyhow::anyhow!("部门不存在"));
+        return Err(SystemDeptBusinessError::ObjectNotFound { id: dept_id }.into());
     }
 
     let has_child: bool = sqlx::query_scalar(
@@ -940,7 +994,7 @@ pub async fn delete_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
     .fetch_one(db_pool)
     .await?;
     if has_child {
-        return Err(anyhow::anyhow!("存在子部门不允许删除"));
+        return Err(SystemDeptBusinessError::HasChildDept.into());
     }
 
     let has_user: bool = sqlx::query_scalar(
@@ -950,7 +1004,7 @@ pub async fn delete_dept(dept_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
     .fetch_one(db_pool)
     .await?;
     if has_user {
-        return Err(anyhow::anyhow!("部门已分配给用户，不允许删除"));
+        return Err(SystemDeptBusinessError::HasLinkedUser.into());
     }
 
     sqlx::query("UPDATE sys_dept SET deleted = TRUE WHERE dept_id = $1")
@@ -1871,9 +1925,9 @@ pub fn parse_id_list(value: &str, field_name: &str) -> anyhow::Result<Vec<i64>> 
 #[cfg(test)]
 mod tests {
     use super::{
-        SystemPostBusinessError, normalize_dept, normalize_post, normalize_user, parse_id_list,
-        parse_status_value, status_label, trim_optional, user_status_to_login_status,
-        validate_user_status,
+        SystemDeptBusinessError, SystemPostBusinessError, normalize_dept, normalize_post,
+        normalize_user, parse_id_list, parse_status_value, status_label, trim_optional,
+        user_status_to_login_status, validate_user_status,
     };
 
     #[test]
@@ -1905,6 +1959,46 @@ mod tests {
     fn normalize_dept_rejects_invalid_parent_or_name() {
         assert!(normalize_dept(-1, "研发", 1, None, None, None, Some(1)).is_err());
         assert!(normalize_dept(0, "", 1, None, None, None, Some(1)).is_err());
+    }
+
+    #[test]
+    fn dept_business_errors_match_keystone_messages() {
+        let cases = [
+            (
+                SystemDeptBusinessError::ObjectNotFound { id: 9 },
+                "找不到ID为 9 的 部门",
+            ),
+            (
+                SystemDeptBusinessError::NameNotUnique {
+                    dept_name: "研发部".to_string(),
+                },
+                "部门名称:研发部, 已存在",
+            ),
+            (
+                SystemDeptBusinessError::ParentIdNotAllowSelf,
+                "父级部门不能选择自己",
+            ),
+            (
+                SystemDeptBusinessError::StatusNotAllowChange,
+                "子部门还有正在启用的部门，暂时不能停用该部门",
+            ),
+            (
+                SystemDeptBusinessError::HasChildDept,
+                "该部门存在下级部门不允许删除",
+            ),
+            (
+                SystemDeptBusinessError::HasLinkedUser,
+                "该部门存在关联的用户不允许删除",
+            ),
+            (
+                SystemDeptBusinessError::ParentDeptUnavailable,
+                "该父级部门不存在或已停用",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

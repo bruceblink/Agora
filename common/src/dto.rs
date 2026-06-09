@@ -624,6 +624,55 @@ pub struct DeptDTO {
     pub create_time: chrono::DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeptResponseDTO {
+    pub id: Option<i64>,
+    pub parent_id: Option<i64>,
+    pub dept_name: Option<String>,
+    pub order_num: Option<i32>,
+    pub leader_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub status: Option<i16>,
+    pub status_str: Option<String>,
+    pub create_time: Option<chrono::DateTime<Utc>>,
+}
+
+impl DeptResponseDTO {
+    pub fn empty() -> Self {
+        Self {
+            id: None,
+            parent_id: None,
+            dept_name: None,
+            order_num: None,
+            leader_name: None,
+            phone: None,
+            email: None,
+            status: None,
+            status_str: None,
+            create_time: None,
+        }
+    }
+}
+
+impl From<DeptDTO> for DeptResponseDTO {
+    fn from(value: DeptDTO) -> Self {
+        Self {
+            id: Some(value.id),
+            parent_id: Some(value.parent_id),
+            dept_name: Some(value.dept_name),
+            order_num: Some(value.order_num),
+            leader_name: value.leader_name,
+            phone: value.phone,
+            email: value.email,
+            status: Some(value.status),
+            status_str: Some(value.status_str),
+            create_time: Some(value.create_time),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDeptDTO {

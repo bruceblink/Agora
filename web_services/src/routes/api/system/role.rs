@@ -1,7 +1,12 @@
 use crate::common::AppState;
+use crate::routes::api::export::{
+    EXPORT_PAGE_SIZE, datetime, optional, xlsx_from_rows, xlsx_response,
+};
 use actix_web::{HttpRequest, HttpResponse, delete, get, post, put, web};
 use common::api::{ApiError, ApiResponse};
-use common::dto::{CreateRoleDTO, UpdateRoleDTO, UpdateRoleDataScopeDTO, UpdateRoleStatusDTO};
+use common::dto::{
+    CreateRoleDTO, RoleDTO, UpdateRoleDTO, UpdateRoleDataScopeDTO, UpdateRoleStatusDTO,
+};
 use common::po::ApiResult;
 use common::{RoleQuery, RoleUserQuery};
 use infra::{
@@ -41,6 +46,25 @@ fn parse_role_ids(value: &str) -> Result<Vec<i64>, ApiError> {
 
 fn parse_user_ids(value: &str) -> Result<Vec<i64>, ApiError> {
     parse_positive_ids(value, "userIds")
+}
+
+fn force_role_export_page(query: &mut RoleQuery) {
+    query.page = Some(1);
+    query.page_num = Some(1);
+    query.page_size = Some(EXPORT_PAGE_SIZE);
+}
+
+fn role_export_row(item: &RoleDTO) -> Vec<String> {
+    vec![
+        item.role_id.to_string(),
+        item.role_name.clone(),
+        item.role_key.clone(),
+        item.role_sort.to_string(),
+        item.status.to_string(),
+        optional(&item.remark),
+        datetime(&item.create_time),
+        item.data_scope.to_string(),
+    ]
 }
 
 #[get("/system/role/list")]
@@ -106,8 +130,25 @@ async fn roles_export(
     app_state: web::Data<AppState>,
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    match list_roles(&query.into_inner(), &app_state.db_pool).await {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+    let mut export_query = query.into_inner();
+    force_role_export_page(&mut export_query);
+
+    match list_roles(&export_query, &app_state.db_pool).await {
+        Ok(data) => {
+            let headers = [
+                "角色ID",
+                "角色名称",
+                "角色标识",
+                "角色排序",
+                "角色状态",
+                "备注",
+                "创建时间",
+                "数据范围",
+            ];
+            let rows = data.items.iter().map(role_export_row).collect::<Vec<_>>();
+            let bytes = xlsx_from_rows("角色列表", &headers, &rows)?;
+            Ok(xlsx_response("roles.xlsx", bytes))
+        }
         Err(e) => {
             tracing::error!("导出角色列表失败: {e:?}");
             Err(ApiError::Database("导出角色列表失败".into()))
@@ -272,8 +313,10 @@ pub async fn role_users_grant_create(
 #[cfg(test)]
 mod tests {
     use common::api::ApiError;
+    use common::dto::RoleDTO;
 
-    use super::{parse_role_ids, parse_user_ids, validate_role_id};
+    use super::{parse_role_ids, parse_user_ids, role_export_row, validate_role_id};
+    use chrono::Utc;
 
     #[test]
     fn validate_role_id_rejects_non_positive_ids() {
@@ -301,5 +344,27 @@ mod tests {
             ApiError::BadRequest(message) => assert!(message.contains("userIds")),
             _ => panic!("expected bad request"),
         }
+    }
+
+    #[test]
+    fn role_export_row_uses_keystone_column_order() {
+        let row = role_export_row(&RoleDTO {
+            role_id: 1,
+            role_name: "超级管理员".into(),
+            role_key: "admin".into(),
+            role_sort: 1,
+            status: 1,
+            remark: Some("系统内置".into()),
+            create_time: Utc::now(),
+            data_scope: 1,
+            selected_menu_list: vec![],
+            selected_dept_list: vec![],
+        });
+
+        let prefix = row.iter().take(6).map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(
+            prefix,
+            vec!["1", "超级管理员", "admin", "1", "1", "系统内置"]
+        );
     }
 }

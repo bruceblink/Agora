@@ -972,9 +972,11 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### POST `/api/system/role/export`
 
-导出角色列表。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+导出 Keystone 兼容角色列表 xlsx 文件。Query 参数同分页查询角色接口，当前单次导出最多 500 条。
 
 **需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 
 ---
 

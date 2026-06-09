@@ -2,6 +2,7 @@ use common::NoticeQuery;
 use common::dto::{CreateNoticeDTO, NoticeDTO, UpdateNoticeDTO};
 use common::po::PageData;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
+use std::fmt;
 
 const DEFAULT_PAGE: u32 = 1;
 const DEFAULT_PAGE_SIZE: u32 = 20;
@@ -28,6 +29,19 @@ struct NoticeRow {
     create_time: chrono::DateTime<chrono::Utc>,
     creator_name: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemNoticeNotFoundError {
+    pub notice_id: i64,
+}
+
+impl fmt::Display for SystemNoticeNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "找不到ID为 {} 的 通知公告", self.notice_id)
+    }
+}
+
+impl std::error::Error for SystemNoticeNotFoundError {}
 
 fn page_bounds(page: Option<u32>, page_size: Option<u32>) -> (u32, u32, i64) {
     let page = page.unwrap_or(DEFAULT_PAGE).max(1);
@@ -187,7 +201,7 @@ pub async fn get_notice(notice_id: i64, db_pool: &PgPool) -> anyhow::Result<Noti
     .bind(notice_id)
     .fetch_optional(db_pool)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("通知公告不存在"))?;
+    .ok_or(SystemNoticeNotFoundError { notice_id })?;
 
     Ok(to_dto(row))
 }
@@ -255,7 +269,7 @@ pub async fn update_notice(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("通知公告不存在"));
+        return Err(SystemNoticeNotFoundError { notice_id }.into());
     }
 
     Ok(())
@@ -276,7 +290,9 @@ pub async fn delete_notices(notice_ids: &[i64], db_pool: &PgPool) -> anyhow::Res
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_notice_status, parse_notice_type, validate_notice_fields};
+    use super::{
+        SystemNoticeNotFoundError, parse_notice_status, parse_notice_type, validate_notice_fields,
+    };
 
     #[test]
     fn parse_notice_type_accepts_keystone_values() {
@@ -302,5 +318,13 @@ mod tests {
     fn validate_notice_fields_rejects_long_title() {
         let title = "a".repeat(51);
         assert!(validate_notice_fields(&title, "1", "内容", "1").is_err());
+    }
+
+    #[test]
+    fn not_found_error_matches_keystone_message() {
+        assert_eq!(
+            SystemNoticeNotFoundError { notice_id: 12 }.to_string(),
+            "找不到ID为 12 的 通知公告"
+        );
     }
 }

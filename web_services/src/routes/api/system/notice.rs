@@ -6,15 +6,29 @@ use common::dto::{CreateNoticeDTO, UpdateNoticeDTO};
 use common::po::ApiResult;
 use common::utils::JwtClaims;
 use infra::{
-    create_notice, delete_notices, get_notice, list_notices, parse_id_list, update_notice,
+    SystemNoticeNotFoundError, create_notice, delete_notices, get_notice, list_notices,
+    parse_id_list, update_notice,
 };
 use serde::Deserialize;
+
+const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeleteNoticeQuery {
     #[serde(default)]
     notice_ids: String,
+}
+
+fn notice_not_found_response(error: &SystemNoticeNotFoundError) -> ApiResponse<()> {
+    let msg = error.to_string();
+    ApiResponse {
+        code: KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
 }
 
 fn current_user_id(req: &HttpRequest) -> Result<i64, ApiError> {
@@ -77,6 +91,9 @@ async fn notice_get(
     match get_notice(notice_id, &app_state.db_pool).await {
         Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemNoticeNotFoundError>() {
+                return Ok(HttpResponse::Ok().json(notice_not_found_response(error)));
+            }
             tracing::error!("查询通知公告 {notice_id} 失败: {e:?}");
             Err(ApiError::NotFound(format!("通知公告 {notice_id} 不存在")))
         }
@@ -116,6 +133,9 @@ async fn notice_update(
     match update_notice(notice_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemNoticeNotFoundError>() {
+                return Ok(HttpResponse::Ok().json(notice_not_found_response(error)));
+            }
             tracing::error!("更新通知公告 {notice_id} 失败: {e:?}");
             Err(ApiError::BadRequest(format!(
                 "更新通知公告 {notice_id} 失败"
@@ -146,7 +166,12 @@ async fn notice_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{DeleteNoticeQuery, validate_delete_ids};
+    use super::{
+        DeleteNoticeQuery, KEYSTONE_OBJECT_NOT_FOUND_CODE, notice_not_found_response,
+        validate_delete_ids,
+    };
+    use infra::SystemNoticeNotFoundError;
+    use serde_json::json;
 
     #[test]
     fn delete_notice_query_accepts_comma_separated_ids() {
@@ -170,5 +195,19 @@ mod tests {
     #[test]
     fn validate_delete_ids_accepts_positive_ids() {
         assert!(validate_delete_ids(&[1, 2]).is_ok());
+    }
+
+    #[test]
+    fn notice_not_found_response_matches_keystone_business_error() {
+        let value = serde_json::to_value(notice_not_found_response(&SystemNoticeNotFoundError {
+            notice_id: 12,
+        }))
+        .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], KEYSTONE_OBJECT_NOT_FOUND_CODE);
+        assert_eq!(value["msg"], "找不到ID为 12 的 通知公告");
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["message"], "找不到ID为 12 的 通知公告");
+        assert!(value.get("data").is_none());
     }
 }

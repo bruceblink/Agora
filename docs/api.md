@@ -701,11 +701,24 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 }
 ```
 
+未提交文件字段时与 Keystone 一致返回 `200 OK` 业务失败响应：
+
+```json
+{
+  "code": 10405,
+  "msg": "上传文件为空",
+  "status": "error",
+  "message": "上传文件为空"
+}
+```
+
 ---
 
 ### POST `/api/file/uploads`
 
 通用多文件上传。请求体为 `multipart/form-data`，文件字段名为 `file` 或 `files`，响应 `data` 为 `UploadDTO[]`。
+
+未提交任何文件字段时同样返回 `10405 上传文件为空` 业务失败响应。
 
 ---
 

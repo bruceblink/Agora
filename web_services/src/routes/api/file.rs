@@ -16,6 +16,8 @@ const RESOURCE_PREFIX: &str = "/profile";
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 const MAX_FILE_NAME_LENGTH: usize = 127;
 const KEYSTONE_FILE_NOT_ALLOWED_CODE: i32 = 10004;
+const KEYSTONE_UPLOAD_FILE_EMPTY_CODE: i32 = 10405;
+const KEYSTONE_UPLOAD_FILE_EMPTY_MSG: &str = "上传文件为空";
 const ALLOWED_EXTENSIONS: &[&str] = &[
     "bmp", "gif", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "html", "htm",
     "txt", "rar", "zip", "gz", "bz2", "mp4", "avi", "rmvb", "pdf",
@@ -101,6 +103,16 @@ fn file_not_allowed_response(filename: &str) -> ApiResponse<()> {
         msg: msg.clone(),
         status: "error".into(),
         message: Some(msg),
+        data: None,
+    }
+}
+
+fn upload_file_empty_response() -> ApiResponse<()> {
+    ApiResponse {
+        code: KEYSTONE_UPLOAD_FILE_EMPTY_CODE,
+        msg: KEYSTONE_UPLOAD_FILE_EMPTY_MSG.into(),
+        status: "error".into(),
+        message: Some(KEYSTONE_UPLOAD_FILE_EMPTY_MSG.into()),
         data: None,
     }
 }
@@ -192,7 +204,7 @@ async fn collect_uploads(
     }
 
     if uploads.is_empty() {
-        return Err(ApiError::BadRequest("上传文件不能为空".into()));
+        return Err(ApiError::BadRequest(KEYSTONE_UPLOAD_FILE_EMPTY_MSG.into()));
     }
     Ok(uploads)
 }
@@ -233,25 +245,45 @@ async fn file_download(query: web::Query<DownloadQuery>) -> ApiResult {
 #[post("/file/upload")]
 async fn file_upload(req: HttpRequest, payload: Multipart) -> ApiResult {
     let base_url = request_base_url(&req);
-    let upload = collect_uploads(payload, true, &base_url).await?.remove(0);
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(upload)))
+    match collect_uploads(payload, true, &base_url).await {
+        Ok(mut uploads) => Ok(HttpResponse::Ok().json(ApiResponse::ok(uploads.remove(0)))),
+        Err(ApiError::BadRequest(msg)) if msg == KEYSTONE_UPLOAD_FILE_EMPTY_MSG => {
+            Ok(HttpResponse::Ok().json(upload_file_empty_response()))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[post("/file/uploads")]
 async fn file_uploads(req: HttpRequest, payload: Multipart) -> ApiResult {
     let base_url = request_base_url(&req);
-    let uploads = collect_uploads(payload, false, &base_url).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(uploads)))
+    match collect_uploads(payload, false, &base_url).await {
+        Ok(uploads) => Ok(HttpResponse::Ok().json(ApiResponse::ok(uploads))),
+        Err(ApiError::BadRequest(msg)) if msg == KEYSTONE_UPLOAD_FILE_EMPTY_MSG => {
+            Ok(HttpResponse::Ok().json(upload_file_empty_response()))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        KEYSTONE_FILE_NOT_ALLOWED_CODE, MAX_FILE_SIZE, file_download, file_extension,
-        generated_filename, is_allowed_extension, sanitize_filename, validate_download_filename,
+        KEYSTONE_FILE_NOT_ALLOWED_CODE, KEYSTONE_UPLOAD_FILE_EMPTY_CODE,
+        KEYSTONE_UPLOAD_FILE_EMPTY_MSG, MAX_FILE_SIZE, file_download, file_extension, file_upload,
+        file_uploads, generated_filename, is_allowed_extension, sanitize_filename,
+        upload_file_empty_response, validate_download_filename,
     };
-    use actix_web::{App, body::to_bytes, http::StatusCode};
+    use actix_web::{
+        App,
+        body::to_bytes,
+        http::{StatusCode, header},
+    };
     use serde_json::Value;
+
+    fn ignored_field_multipart_payload() -> &'static str {
+        "--agora-empty\r\nContent-Disposition: form-data; name=\"ignored\"\r\n\r\nvalue\r\n--agora-empty--\r\n"
+    }
 
     #[test]
     fn file_size_limit_matches_keystone_default() {
@@ -290,6 +322,70 @@ mod tests {
         assert_eq!(data["msg"], "文件名称(../readme.txt)非法，不允许下载");
         assert_eq!(data["status"], "error");
         assert_eq!(data["message"], "文件名称(../readme.txt)非法，不允许下载");
+        assert!(data.get("data").is_none());
+    }
+
+    #[test]
+    fn upload_empty_response_matches_keystone_business_error() {
+        let response = upload_file_empty_response();
+
+        assert_eq!(response.code, KEYSTONE_UPLOAD_FILE_EMPTY_CODE);
+        assert_eq!(response.msg, KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
+        assert_eq!(response.status, "error");
+        assert_eq!(
+            response.message.as_deref(),
+            Some(KEYSTONE_UPLOAD_FILE_EMPTY_MSG)
+        );
+        assert!(response.data.is_none());
+    }
+
+    #[actix_web::test]
+    async fn file_upload_returns_keystone_business_error_for_empty_payload() {
+        let app = actix_web::test::init_service(App::new().service(file_upload)).await;
+        let req = actix_web::test::TestRequest::post()
+            .uri("/file/upload")
+            .insert_header((
+                header::CONTENT_TYPE,
+                "multipart/form-data; boundary=agora-empty",
+            ))
+            .set_payload(ignored_field_multipart_payload())
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_UPLOAD_FILE_EMPTY_CODE);
+        assert_eq!(data["msg"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
+        assert!(data.get("data").is_none());
+    }
+
+    #[actix_web::test]
+    async fn file_uploads_returns_keystone_business_error_for_empty_payload() {
+        let app = actix_web::test::init_service(App::new().service(file_uploads)).await;
+        let req = actix_web::test::TestRequest::post()
+            .uri("/file/uploads")
+            .insert_header((
+                header::CONTENT_TYPE,
+                "multipart/form-data; boundary=agora-empty",
+            ))
+            .set_payload(ignored_field_multipart_payload())
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_UPLOAD_FILE_EMPTY_CODE);
+        assert_eq!(data["msg"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
         assert!(data.get("data").is_none());
     }
 

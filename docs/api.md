@@ -11,6 +11,7 @@
 
 - [响应结构](#响应结构)
 - [认证 / 鉴权](#认证--鉴权)
+  - [首页重定向](#get-root)
   - [健康检查](#get-health)
   - [登录](#post-login)
   - [Keylo Token 登录兼容入口](#post-loginkeylo)
@@ -198,6 +199,22 @@
 ---
 
 ## 认证 / 鉴权
+
+<a id="get-root"></a>
+
+### GET `/`
+
+Keystone 兼容首页入口，直接重定向到前端页面。重定向地址优先读取 `KEYSTONE_FRONTEND_URL`，其次兼容 `FRONTEND_URL`，未配置时使用 Keystone 默认值 `http://localhost:80`。
+
+**无需认证**
+
+**响应** `302 Found`
+
+| Header | 说明 |
+| --- | --- |
+| `Location` | 前端访问地址 |
+
+---
 
 ### GET `/health`
 

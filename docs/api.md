@@ -295,7 +295,7 @@ Keystone 兼容健康检查。
 
 ### POST `/login/keylo`
 
-Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token verifier，该兼容端点会返回 `400 Bad Request` 并提示使用 `/login`。
+Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token verifier，与 Keystone 本地开发默认配置一致返回 `Keylo登录未启用` 业务失败响应。
 
 **无需认证**
 
@@ -305,6 +305,17 @@ Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token ver
 {
   "accessToken": "keylo-access-token",
   "forceLogin": false
+}
+```
+
+**响应** `200 OK`
+
+```json
+{
+  "code": 10206,
+  "msg": "Keylo登录未启用",
+  "status": "error",
+  "message": "Keylo登录未启用"
 }
 ```
 

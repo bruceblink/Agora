@@ -15,6 +15,9 @@ use infra::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+const KEYSTONE_KEYLO_DISABLED_CODE: i32 = 10206;
+const KEYSTONE_KEYLO_DISABLED_MSG: &str = "Keylo登录未启用";
+
 fn keystone_business_response(code: i32, msg: &str) -> HttpResponse {
     HttpResponse::Ok().json(ApiResponse::<()> {
         code,
@@ -23,6 +26,10 @@ fn keystone_business_response(code: i32, msg: &str) -> HttpResponse {
         message: Some(msg.to_string()),
         data: None,
     })
+}
+
+fn keylo_disabled_response() -> HttpResponse {
+    keystone_business_response(KEYSTONE_KEYLO_DISABLED_CODE, KEYSTONE_KEYLO_DISABLED_MSG)
 }
 
 fn token_window_days(
@@ -339,10 +346,8 @@ async fn login(
 }
 
 #[post("/login/keylo")]
-async fn keylo_login_compat() -> Result<HttpResponse, ApiError> {
-    Err(ApiError::BadRequest(
-        "Keylo token 登录未启用，请使用 /login".into(),
-    ))
+async fn keylo_login_compat() -> HttpResponse {
+    keylo_disabled_response()
 }
 
 #[post("/logout")]
@@ -393,7 +398,10 @@ async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Respon
 
 #[cfg(test)]
 mod tests {
-    use super::keystone_business_response;
+    use super::{
+        KEYSTONE_KEYLO_DISABLED_CODE, KEYSTONE_KEYLO_DISABLED_MSG, keylo_disabled_response,
+        keystone_business_response,
+    };
     use actix_web::body::to_bytes;
     use serde_json::Value;
 
@@ -407,6 +415,19 @@ mod tests {
         assert_eq!(data["msg"], "验证码错误");
         assert_eq!(data["status"], "error");
         assert_eq!(data["message"], "验证码错误");
+        assert!(data.get("data").is_none());
+    }
+
+    #[actix_web::test]
+    async fn keylo_login_disabled_response_matches_keystone_business_error() {
+        let response = keylo_disabled_response();
+        let body = to_bytes(response.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_KEYLO_DISABLED_CODE);
+        assert_eq!(data["msg"], KEYSTONE_KEYLO_DISABLED_MSG);
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], KEYSTONE_KEYLO_DISABLED_MSG);
         assert!(data.get("data").is_none());
     }
 }

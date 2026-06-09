@@ -238,6 +238,7 @@ Keystone 兼容健康检查。
 ### POST `/login`
 
 本地账号登录。兼容 AgileBoot：密码可为 `/login/rsa-public-key` 返回公钥加密后的 RSA 密文，也兼容明文密码。
+当 `sys.account.captchaOnOff=true` 时，需先调用 `/captchaImage`，并提交返回的 `captchaCodeKey` 与图片中计算结果。
 
 **无需认证**
 
@@ -279,6 +280,17 @@ Keystone 兼容健康检查。
 }
 ```
 
+启用验证码后，验证码错误或过期与 Keystone 一致返回 `200 OK` 业务失败响应；错误码为 `10203`，过期码为 `10204`：
+
+```json
+{
+  "code": 10203,
+  "msg": "验证码错误",
+  "status": "error",
+  "message": "验证码错误"
+}
+```
+
 ---
 
 ### POST `/login/keylo`
@@ -300,7 +312,7 @@ Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token ver
 
 ### GET `/captchaImage`
 
-返回登录验证码信息。当前 Agora 默认关闭验证码，保留该接口用于前端启动兼容。
+返回登录验证码信息。`sys.account.captchaOnOff=false` 时返回空 key 和空图片；为 `true` 时返回 2 分钟有效的一次性数学验证码。
 
 **无需认证**
 
@@ -309,9 +321,9 @@ Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token ver
   "code": 0,
   "msg": "操作成功",
   "data": {
-    "isCaptchaOn": false,
-    "captchaCodeKey": "",
-    "captchaCodeImg": ""
+    "isCaptchaOn": true,
+    "captchaCodeKey": "9d4c0a626bf9478580a40c06cbad6258",
+    "captchaCodeImg": "/9j/4AAQSkZJRgABAQ..."
   }
 }
 ```

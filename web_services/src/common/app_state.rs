@@ -1,3 +1,4 @@
+use super::CaptchaStore;
 use crate::task_manage::{TaskManager, get_global_task_manager};
 use infra::{OAuthConfig, Setting};
 use oauth2::basic::BasicClient;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub task_manager: Arc<TaskManager>,
     // 全局配置文件配置
     pub configuration: Setting,
+    pub captcha_store: CaptchaStore,
 }
 
 impl AppState {
@@ -36,6 +38,7 @@ impl AppState {
             db_pool,
             task_manager,
             configuration,
+            captcha_store: CaptchaStore::default(),
         })
     }
 }

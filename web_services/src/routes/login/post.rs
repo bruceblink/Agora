@@ -15,6 +15,16 @@ use infra::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+fn keystone_business_response(code: i32, msg: &str) -> HttpResponse {
+    HttpResponse::Ok().json(ApiResponse::<()> {
+        code,
+        msg: msg.to_string(),
+        status: "error".into(),
+        message: Some(msg.to_string()),
+        data: None,
+    })
+}
+
 fn token_window_days(
     app_state: &web::Data<AppState>,
     token_key: &'static str,
@@ -73,6 +83,43 @@ async fn record_login_attempt(
     }
 }
 
+async fn validate_login_captcha_if_enabled(
+    app_state: &web::Data<AppState>,
+    http_req: &HttpRequest,
+    req: &LoginRequest,
+) -> Result<Option<HttpResponse>, ApiError> {
+    let is_captcha_on = infra::is_captcha_on(&app_state.db_pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("读取验证码开关失败: {e}");
+            ApiError::Internal("读取验证码开关失败".into())
+        })?;
+    if !is_captcha_on {
+        return Ok(None);
+    }
+
+    match app_state
+        .captcha_store
+        .validate(req.captcha_code_key.as_deref(), req.captcha_code.as_deref())
+    {
+        Ok(()) => Ok(None),
+        Err(error) => {
+            record_login_attempt(
+                app_state,
+                http_req,
+                &login_identity(req),
+                0,
+                error.message(),
+            )
+            .await;
+            Ok(Some(keystone_business_response(
+                error.code(),
+                error.message(),
+            )))
+        }
+    }
+}
+
 fn session_login_info(http_req: &HttpRequest) -> infra::SessionLoginInfo {
     let ip_address = request_ip(http_req);
     let user_agent = user_agent(http_req);
@@ -115,6 +162,10 @@ async fn login(
     body: web::Json<LoginRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = body.into_inner();
+    if let Some(response) = validate_login_captcha_if_enabled(&app_state, &http_req, &req).await? {
+        return Ok(response);
+    }
+
     let password = decrypt_login_password_or_plain(&req.password);
     if password.len() < 8 {
         record_login_attempt(
@@ -338,4 +389,24 @@ async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Respon
         .cookie(access_cookie)
         .cookie(refresh_cookie)
         .json(ApiResponse::<()>::ok(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keystone_business_response;
+    use actix_web::body::to_bytes;
+    use serde_json::Value;
+
+    #[actix_web::test]
+    async fn captcha_business_error_response_matches_keystone_shape() {
+        let response = keystone_business_response(10203, "验证码错误");
+        let body = to_bytes(response.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], 10203);
+        assert_eq!(data["msg"], "验证码错误");
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], "验证码错误");
+        assert!(data.get("data").is_none());
+    }
 }

@@ -1,13 +1,13 @@
-use crate::common::{AppState, ExtractToken};
+use crate::common::{AppState, ExtractToken, build_captcha_dto};
 use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{HttpRequest, HttpResponse, get, post, web};
 use chrono::Utc;
 use common::api::{ApiError, ApiResponse};
-use common::dto::{CaptchaDTO, CurrentLoginUserDTO, RsaPublicKeyDTO, TokenDTO};
+use common::dto::{CurrentLoginUserDTO, RsaPublicKeyDTO, TokenDTO};
 use common::po::ApiResult;
 use common::utils::{CommonUser, JwtClaims, generate_jwt, login_rsa_public_key_base64, verify_jwt};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
-use infra::{get_system_user, list_user_router_tree};
+use infra::{get_system_user, is_captcha_on, list_user_router_tree};
 use serde::Deserialize;
 use sqlx::FromRow;
 
@@ -259,12 +259,17 @@ async fn issue_access_token_for_user(
 }
 
 #[get("/captchaImage")]
-async fn captcha_image() -> ApiResult {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(CaptchaDTO {
-        is_captcha_on: false,
-        captcha_code_key: String::new(),
-        captcha_code_img: String::new(),
-    })))
+async fn captcha_image(app_state: web::Data<AppState>) -> ApiResult {
+    let is_captcha_on = is_captcha_on(&app_state.db_pool).await.map_err(|e| {
+        tracing::error!("读取验证码开关失败: {e}");
+        ApiError::Internal("读取验证码开关失败".into())
+    })?;
+    let captcha = build_captcha_dto(is_captcha_on, &app_state.captcha_store).map_err(|e| {
+        tracing::error!("生成验证码失败: {e}");
+        ApiError::Internal("验证码生成失败".into())
+    })?;
+
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(captcha)))
 }
 
 #[get("/login/rsa-public-key")]

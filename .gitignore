@@ -4,6 +4,7 @@
 /postgresql
 /postgresql/data
 /postgresql/logs
+/uploads
 .env
 .claude/
 .vscode/

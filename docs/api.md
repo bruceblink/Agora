@@ -342,6 +342,84 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ---
 
+## 个人资料
+
+> 以下接口需认证（Cookie 携带 `access_token`）。对应 Keystone `/system/user/profile` 模块，Agora 挂载在 `/api` 认证前缀下。
+
+### GET `/api/system/user/profile`
+
+获取当前登录用户的个人资料、角色名称和岗位名称。
+
+**响应** `200 OK`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "user": {
+      "userId": 1,
+      "username": "admin",
+      "nickname": "系统管理员",
+      "email": "admin@example.com",
+      "phoneNumber": "15888888888",
+      "sex": 2,
+      "avatar": "/uploads/avatar/user-1.png",
+      "roleName": "超级管理员",
+      "postName": "董事长"
+    },
+    "roleName": "超级管理员",
+    "postName": "董事长"
+  }
+}
+```
+
+---
+
+### PUT `/api/system/user/profile`
+
+修改当前登录用户个人资料。省略字段会保留原值，传空字符串会清空可选字段。
+
+```json
+{
+  "nickName": "管理员",
+  "phoneNumber": "15888888888",
+  "email": "admin@example.com",
+  "sex": 2
+}
+```
+
+---
+
+### PUT `/api/system/user/profile/password`
+
+修改当前登录用户密码，会校验旧密码并递增 `token_version` 使旧 access token 失效。
+
+```json
+{
+  "oldPassword": "old-password",
+  "newPassword": "new-password"
+}
+```
+
+---
+
+### POST `/api/system/user/profile/avatar`
+
+上传当前登录用户头像。请求体为 `multipart/form-data`，文件字段名与 Keystone 一致为 `avatarfile`；支持 `jpeg` / `png` / `gif` / `webp`，最大 5MB。
+
+**响应** `200 OK`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "imgUrl": "/uploads/avatar/user-1-1710000000000-123.png"
+  }
+}
+```
+
+---
+
 ## 系统配置 / 字典
 
 ### GET `/getConfig`
@@ -536,7 +614,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### GET `/api/system/menus`
 
-查询 Keystone 兼容菜单列表。岗位、部门菜单按当前产品范围不种入。
+查询 Keystone 兼容菜单列表，包含用户、角色、菜单、部门、岗位、参数、公告、日志和定时任务等系统管理菜单。
 
 **需要认证，仅管理员**
 

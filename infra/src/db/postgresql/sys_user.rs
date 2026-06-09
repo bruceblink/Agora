@@ -1,8 +1,8 @@
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
 use common::dto::{
     CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, ResetUserPasswordDTO,
-    RoleDTO, SystemUserDTO, UpdateDeptDTO, UpdatePostDTO, UpdateSystemUserDTO, UpdateUserStatusDTO,
-    UserDetailDTO,
+    RoleDTO, SystemUserDTO, UpdateDeptDTO, UpdateOwnPasswordDTO, UpdatePostDTO, UpdateProfileDTO,
+    UpdateSystemUserDTO, UpdateUserStatusDTO, UserDetailDTO, UserProfileDTO,
 };
 use common::po::PageData;
 use common::{DeptQuery, PostQuery, RoleQuery, SystemUserQuery};
@@ -1293,6 +1293,18 @@ pub async fn get_system_user(user_id: i64, db_pool: &PgPool) -> anyhow::Result<S
     Ok(to_system_user_dto(row))
 }
 
+pub async fn get_user_profile(user_id: i64, db_pool: &PgPool) -> anyhow::Result<UserProfileDTO> {
+    let user = get_system_user(user_id, db_pool).await?;
+    let role_name = user.role_name.clone();
+    let post_name = user.post_name.clone();
+
+    Ok(UserProfileDTO {
+        user,
+        role_name,
+        post_name,
+    })
+}
+
 pub async fn get_user_detail(
     user_id: Option<i64>,
     db_pool: &PgPool,
@@ -1356,6 +1368,70 @@ async fn list_user_permissions(user_id: i64, db_pool: &PgPool) -> anyhow::Result
     .await?;
 
     Ok(permissions)
+}
+
+pub async fn update_user_profile(
+    user_id: i64,
+    data: &UpdateProfileDTO,
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
+    if user_id <= 0 {
+        return Err(anyhow::anyhow!("userId 必须为正整数"));
+    }
+
+    let existing = get_system_user(user_id, db_pool).await?;
+    let sex = data.sex.or(existing.sex).unwrap_or(2);
+    validate_sex(sex)?;
+
+    let nickname = match data.nickname.as_deref() {
+        Some(value) => trim_optional(Some(value)),
+        None => existing.nickname.clone(),
+    };
+    let phone_number = match data.phone_number.as_deref() {
+        Some(value) => trim_optional(Some(value)),
+        None => existing.phone_number.clone(),
+    };
+    let email = match data.email.as_deref() {
+        Some(value) => trim_optional(Some(value)),
+        None => existing.email.clone(),
+    };
+
+    check_user_unique(
+        Some(user_id),
+        &existing.username,
+        email.as_deref(),
+        phone_number.as_deref(),
+        db_pool,
+    )
+    .await?;
+
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE user_info
+        SET nickname = $2,
+            display_name = $3,
+            phone_number = $4,
+            email = $5,
+            sex = $6
+        WHERE id = $1
+          AND deleted = FALSE
+        "#,
+    )
+    .bind(user_id)
+    .bind(&nickname)
+    .bind(nickname.as_deref().unwrap_or(&existing.username))
+    .bind(&phone_number)
+    .bind(&email)
+    .bind(sex)
+    .execute(db_pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(anyhow::anyhow!("用户不存在"));
+    }
+
+    Ok(())
 }
 
 pub async fn create_system_user(
@@ -1547,6 +1623,68 @@ pub async fn update_system_user_password(
     Ok(())
 }
 
+pub async fn update_own_password(
+    user_id: i64,
+    data: &UpdateOwnPasswordDTO,
+    password_hash: &str,
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
+    if data
+        .user_id
+        .is_some_and(|body_user_id| body_user_id != user_id)
+    {
+        return Err(anyhow::anyhow!("路径 userId 与请求体不一致"));
+    }
+    if data.old_password.len() < 8 || data.new_password.len() < 8 {
+        return Err(anyhow::anyhow!("密码长度不能少于 8 位"));
+    }
+    if data.old_password == data.new_password {
+        return Err(anyhow::anyhow!("新密码不能与旧密码相同"));
+    }
+
+    let current_password: Option<Option<String>> = sqlx::query_scalar(
+        r#"
+        SELECT password
+        FROM user_info
+        WHERE id = $1
+          AND deleted = FALSE
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(db_pool)
+    .await?;
+
+    let current_password = current_password
+        .ok_or_else(|| anyhow::anyhow!("用户不存在"))?
+        .ok_or_else(|| anyhow::anyhow!("当前用户未设置本地密码"))?;
+    let verified = bcrypt::verify(&data.old_password, &current_password)
+        .map_err(|_| anyhow::anyhow!("旧密码校验失败"))?;
+    if !verified {
+        return Err(anyhow::anyhow!("旧密码不正确"));
+    }
+
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE user_info
+        SET password = $2,
+            token_version = token_version + 1
+        WHERE id = $1
+          AND deleted = FALSE
+        "#,
+    )
+    .bind(user_id)
+    .bind(password_hash)
+    .execute(db_pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(anyhow::anyhow!("用户不存在"));
+    }
+
+    Ok(())
+}
+
 pub async fn update_system_user_status(
     user_id: i64,
     data: &UpdateUserStatusDTO,
@@ -1573,6 +1711,42 @@ pub async fn update_system_user_status(
     .bind(user_id)
     .bind(data.status)
     .bind(user_status_to_login_status(data.status))
+    .execute(db_pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(anyhow::anyhow!("用户不存在"));
+    }
+
+    Ok(())
+}
+
+pub async fn update_user_avatar(
+    user_id: i64,
+    avatar_url: &str,
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
+    if user_id <= 0 {
+        return Err(anyhow::anyhow!("userId 必须为正整数"));
+    }
+
+    let avatar_url = avatar_url.trim();
+    if avatar_url.is_empty() {
+        return Err(anyhow::anyhow!("头像地址不能为空"));
+    }
+
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE user_info
+        SET avatar = $2,
+            avatar_url = $2
+        WHERE id = $1
+          AND deleted = FALSE
+        "#,
+    )
+    .bind(user_id)
+    .bind(avatar_url)
     .execute(db_pool)
     .await?
     .rows_affected();
@@ -1663,7 +1837,7 @@ pub fn parse_id_list(value: &str, field_name: &str) -> anyhow::Result<Vec<i64>> 
 mod tests {
     use super::{
         normalize_dept, normalize_post, normalize_user, parse_id_list, parse_status_value,
-        status_label, user_status_to_login_status, validate_user_status,
+        status_label, trim_optional, user_status_to_login_status, validate_user_status,
     };
 
     #[test]
@@ -1731,5 +1905,12 @@ mod tests {
         assert!(parse_id_list("", "ids").is_err());
         assert!(parse_id_list("0", "ids").is_err());
         assert!(parse_id_list("x", "ids").is_err());
+    }
+
+    #[test]
+    fn trim_optional_turns_blank_values_into_none() {
+        assert_eq!(trim_optional(Some(" Alice ")).as_deref(), Some("Alice"));
+        assert!(trim_optional(Some("   ")).is_none());
+        assert!(trim_optional(None).is_none());
     }
 }

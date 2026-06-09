@@ -32,6 +32,7 @@ use crate::routes::{
 use crate::routes::{me, sync_me_get, sync_me_post, sync_task_source};
 use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_update, menus_list};
 use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
+use crate::routes::{profile_avatar_update, profile_get, profile_password_update, profile_update};
 use crate::routes::{
     role_create, role_data_scope_update, role_delete, role_get, role_status_update, role_update,
     roles_export, roles_list,
@@ -39,6 +40,7 @@ use crate::routes::{
 use crate::routes::{
     system_config_cache_refresh, system_config_get, system_config_update, system_configs_list,
 };
+use actix_files::Files;
 use actix_web::dev::Server;
 use actix_web::{App, HttpServer, web};
 use anyhow::{Context, Result};
@@ -135,6 +137,7 @@ async fn create_server(
             .service(register)
             .service(auth_token_refresh)
             .service(get_config_public)
+            .service(Files::new("/uploads", "./uploads").prefer_utf8(true))
             // SSE 公开接口（无需认证，供落地页实时新闻使用）
             // 需要认证的 API 路由
             .service(
@@ -186,6 +189,10 @@ async fn create_server(
                         .service(role_create)
                         .service(role_update)
                         .service(role_delete)
+                        .service(profile_get)
+                        .service(profile_update)
+                        .service(profile_password_update)
+                        .service(profile_avatar_update)
                         .service(depts_list)
                         .service(depts_dropdown)
                         .service(dept_get)

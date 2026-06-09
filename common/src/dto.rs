@@ -599,6 +599,38 @@ pub struct UserDetailDTO {
     pub permissions: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserProfileDTO {
+    pub user: SystemUserDTO,
+    pub role_name: Option<String>,
+    pub post_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProfileDTO {
+    pub sex: Option<i16>,
+    #[serde(alias = "nickName")]
+    pub nickname: Option<String>,
+    pub phone_number: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOwnPasswordDTO {
+    pub user_id: Option<i64>,
+    pub old_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadFileDTO {
+    pub img_url: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSystemUserDTO {

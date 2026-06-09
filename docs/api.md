@@ -2,6 +2,7 @@
 
 > 基础路径：`/`  
 > 所有需要认证的接口须在 Cookie 中携带 `access_token`（JWT）。  
+> Keystone 兼容管理接口同时支持原始根路径与 `/api` 前缀路径，例如 `/system/users` 与 `/api/system/users` 等价；本文示例保留 `/api` 形式，便于兼容现有 Agora 客户端。
 > 统一响应格式见 [响应结构](#响应结构) 章节。
 
 ---
@@ -510,7 +511,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ## 个人资料
 
-> 以下接口需认证（Cookie 携带 `access_token`）。对应 Keystone `/system/user/profile` 模块，Agora 挂载在 `/api` 认证前缀下。
+> 以下接口需认证（Cookie 携带 `access_token`）。对应 Keystone `/system/user/profile` 模块，同时支持 `/system/user/profile` 与 `/api/system/user/profile`。
 
 ### GET `/api/system/user/profile`
 
@@ -588,7 +589,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ## 通用文件
 
-> 以下接口需认证。对应 Keystone `/file` 模块；Agora 按现有认证路由约定挂载在 `/api` 前缀下。上传后的静态资源通过 `/profile/**` 访问。
+> 以下接口需认证。对应 Keystone `/file` 模块，同时支持 `/file/*` 与 `/api/file/*`。上传后的静态资源通过 `/profile/**` 访问。
 
 ### GET `/api/file/download`
 
@@ -1666,7 +1667,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ## 系统监控
 
-> 对应 Keystone `/monitor` 模块。Agora 挂载在 `/api` 认证前缀下，所以外部路径为 `/api/monitor/*`。
+> 对应 Keystone `/monitor` 模块，同时支持 `/monitor/*` 与 `/api/monitor/*`。
 
 ### GET `/api/monitor/cacheInfo`
 

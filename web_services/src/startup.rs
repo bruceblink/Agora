@@ -120,6 +120,94 @@ async fn create_app_state(
     Ok(web::Data::new(app_state))
 }
 
+fn configure_keystone_services(cfg: &mut web::ServiceConfig) {
+    cfg.service(file_download)
+        .service(file_upload)
+        .service(file_uploads)
+        .service(dict_types_list)
+        .service(dict_type_get)
+        .service(dict_type_create)
+        .service(dict_type_update)
+        .service(dict_type_delete)
+        .service(dict_data_list)
+        .service(dict_data_by_type)
+        .service(dict_data_get)
+        .service(dict_data_create)
+        .service(dict_data_update)
+        .service(dict_data_delete)
+        .service(system_configs_list)
+        .service(system_config_get)
+        .service(system_config_update)
+        .service(system_config_cache_refresh)
+        .service(menus_list)
+        .service(menu_dropdown)
+        .service(menu_get)
+        .service(menu_create)
+        .service(menu_update)
+        .service(menu_delete)
+        .service(notices_list)
+        .service(notice_get)
+        .service(notice_create)
+        .service(notice_update)
+        .service(notice_delete)
+        .service(roles_list)
+        .service(roles_export)
+        .service(role_status_update)
+        .service(role_data_scope_update)
+        .service(role_allocated_users_list)
+        .service(role_unallocated_users_list)
+        .service(role_users_grant_delete)
+        .service(role_users_grant_create)
+        .service(role_get)
+        .service(role_create)
+        .service(role_update)
+        .service(role_delete)
+        .service(profile_get)
+        .service(profile_update)
+        .service(profile_password_update)
+        .service(profile_avatar_update)
+        .service(depts_list)
+        .service(depts_dropdown)
+        .service(dept_get)
+        .service(dept_create)
+        .service(dept_update)
+        .service(dept_delete)
+        .service(posts_list)
+        .service(posts_export)
+        .service(post_get)
+        .service(post_create)
+        .service(post_update)
+        .service(posts_delete)
+        .service(users_list)
+        .service(users_export)
+        .service(users_excel_template)
+        .service(users_import)
+        .service(user_get)
+        .service(user_create)
+        .service(user_update)
+        .service(user_password_update)
+        .service(user_status_update)
+        .service(users_delete)
+        .service(jobs_list)
+        .service(job_get)
+        .service(job_create)
+        .service(job_update)
+        .service(job_status_update)
+        .service(job_run)
+        .service(jobs_delete)
+        .service(login_logs_list)
+        .service(login_logs_export)
+        .service(login_logs_delete)
+        .service(operation_logs_list)
+        .service(operation_logs_export)
+        .service(operation_log_create)
+        .service(operation_logs_delete)
+        .service(monitor_cache_info)
+        .service(monitor_server_info)
+        .service(monitor_online_users)
+        .service(monitor_online_user_delete);
+}
+
 /// 创建服务器
 async fn create_server(
     listener: TcpListener,
@@ -160,9 +248,7 @@ async fn create_server(
                 web::scope("/api").service(news_stream_sse).service(
                     web::scope("")
                         .wrap(AuthMiddleware)
-                        .service(file_download)
-                        .service(file_upload)
-                        .service(file_uploads)
+                        .configure(configure_keystone_services)
                         .service(me)
                         .service(sync_task_source)
                         .service(sync_me_get)
@@ -174,88 +260,6 @@ async fn create_server(
                         .service(scheduled_tasks_update)
                         .service(scheduled_tasks_toggle)
                         .service(scheduled_tasks_delete)
-                        .service(dict_types_list)
-                        .service(dict_type_get)
-                        .service(dict_type_create)
-                        .service(dict_type_update)
-                        .service(dict_type_delete)
-                        .service(dict_data_list)
-                        .service(dict_data_by_type)
-                        .service(dict_data_get)
-                        .service(dict_data_create)
-                        .service(dict_data_update)
-                        .service(dict_data_delete)
-                        .service(system_configs_list)
-                        .service(system_config_get)
-                        .service(system_config_update)
-                        .service(system_config_cache_refresh)
-                        .service(menus_list)
-                        .service(menu_dropdown)
-                        .service(menu_get)
-                        .service(menu_create)
-                        .service(menu_update)
-                        .service(menu_delete)
-                        .service(notices_list)
-                        .service(notice_get)
-                        .service(notice_create)
-                        .service(notice_update)
-                        .service(notice_delete)
-                        .service(roles_list)
-                        .service(roles_export)
-                        .service(role_status_update)
-                        .service(role_data_scope_update)
-                        .service(role_allocated_users_list)
-                        .service(role_unallocated_users_list)
-                        .service(role_users_grant_delete)
-                        .service(role_users_grant_create)
-                        .service(role_get)
-                        .service(role_create)
-                        .service(role_update)
-                        .service(role_delete)
-                        .service(profile_get)
-                        .service(profile_update)
-                        .service(profile_password_update)
-                        .service(profile_avatar_update)
-                        .service(depts_list)
-                        .service(depts_dropdown)
-                        .service(dept_get)
-                        .service(dept_create)
-                        .service(dept_update)
-                        .service(dept_delete)
-                        .service(posts_list)
-                        .service(posts_export)
-                        .service(post_get)
-                        .service(post_create)
-                        .service(post_update)
-                        .service(posts_delete)
-                        .service(users_list)
-                        .service(users_export)
-                        .service(users_excel_template)
-                        .service(users_import)
-                        .service(user_get)
-                        .service(user_create)
-                        .service(user_update)
-                        .service(user_password_update)
-                        .service(user_status_update)
-                        .service(users_delete)
-                        .service(jobs_list)
-                        .service(job_get)
-                        .service(job_create)
-                        .service(job_update)
-                        .service(job_status_update)
-                        .service(job_run)
-                        .service(jobs_delete)
-                        .service(login_logs_list)
-                        .service(login_logs_export)
-                        .service(login_logs_delete)
-                        .service(operation_logs_list)
-                        .service(operation_logs_export)
-                        .service(operation_log_create)
-                        .service(operation_logs_delete)
-                        .service(monitor_cache_info)
-                        .service(monitor_server_info)
-                        .service(monitor_online_users)
-                        .service(monitor_online_user_delete)
                         .service(ani_collect_list)
                         .service(ani_collect_create)
                         .service(ani_collect_delete)
@@ -277,6 +281,12 @@ async fn create_server(
         if has_oauth {
             app = app.service(auth_github_login).service(auth_github_callback);
         }
+
+        app = app.service(
+            web::scope("")
+                .wrap(AuthMiddleware)
+                .configure(configure_keystone_services),
+        );
 
         app
     })
@@ -302,4 +312,47 @@ pub async fn start_web_server(configuration: Setting, connection_pool: PgPool) -
         .context("Failed to start server")?;
 
     server.await.context("Server error during execution")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configure_keystone_services;
+    use crate::middleware::AuthMiddleware;
+    use crate::routes::health;
+    use actix_web::{App, http::StatusCode, test, web};
+
+    #[actix_web::test]
+    async fn keystone_root_paths_are_protected_aliases_without_blocking_public_routes() {
+        let app = test::init_service(
+            App::new()
+                .service(health)
+                .service(
+                    web::scope("/api").service(
+                        web::scope("")
+                            .wrap(AuthMiddleware)
+                            .configure(configure_keystone_services),
+                    ),
+                )
+                .service(
+                    web::scope("")
+                        .wrap(AuthMiddleware)
+                        .configure(configure_keystone_services),
+                ),
+        )
+        .await;
+
+        let health_req = test::TestRequest::get().uri("/health").to_request();
+        let health_resp = test::call_service(&app, health_req).await;
+        assert_eq!(health_resp.status(), StatusCode::OK);
+
+        let root_req = test::TestRequest::get().uri("/system/configs").to_request();
+        let root_resp = test::call_service(&app, root_req).await;
+        assert_eq!(root_resp.status(), StatusCode::UNAUTHORIZED);
+
+        let api_req = test::TestRequest::get()
+            .uri("/api/system/configs")
+            .to_request();
+        let api_resp = test::call_service(&app, api_req).await;
+        assert_eq!(api_resp.status(), StatusCode::UNAUTHORIZED);
+    }
 }

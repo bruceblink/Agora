@@ -684,6 +684,15 @@ pub struct UploadFileDTO {
     pub img_url: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadDTO {
+    pub url: String,
+    pub file_name: String,
+    pub new_file_name: String,
+    pub original_filename: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSystemUserDTO {

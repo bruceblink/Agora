@@ -26,6 +26,10 @@
   - [获取当前用户信息](#get-apime)
   - [获取用户配置](#get-apisyncme)
   - [保存用户配置](#post-apisyncme)
+- [通用文件](#通用文件)
+  - [下载文件](#get-apifiledownload)
+  - [单文件上传](#post-apifileupload)
+  - [多文件上传](#post-apifileuploads)
 - [系统配置 / 字典](#系统配置--字典)
   - [获取登录配置与字典](#get-getconfig)
   - [分页查询系统配置](#get-apisystemconfigs)
@@ -579,6 +583,50 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
   }
 }
 ```
+
+---
+
+## 通用文件
+
+> 以下接口需认证。对应 Keystone `/file` 模块；Agora 按现有认证路由约定挂载在 `/api` 前缀下。上传后的静态资源通过 `/profile/**` 访问。
+
+### GET `/api/file/download`
+
+下载 `uploads/profile/download` 下的文件。`fileName` 不允许目录穿越，仅允许 Keystone 白名单扩展名。
+
+**查询参数**
+
+| 字段       | 类型     | 必填 | 说明   |
+|----------|--------|----|------|
+| fileName | string | ✓  | 文件名  |
+
+**响应** `200 OK`，返回 `application/octet-stream` 文件流。
+
+---
+
+### POST `/api/file/upload`
+
+通用单文件上传。请求体为 `multipart/form-data`，文件字段名为 `file`。允许图片、Office、文本、压缩包、视频和 PDF 等 Keystone 白名单扩展名，最大 50MB。
+
+**响应** `200 OK`
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "url": "http://localhost:8000/profile/upload/20260609093000_report_abc.xlsx",
+    "fileName": "/profile/upload/20260609093000_report_abc.xlsx",
+    "newFileName": "20260609093000_report_abc.xlsx",
+    "originalFilename": "report.xlsx"
+  }
+}
+```
+
+---
+
+### POST `/api/file/uploads`
+
+通用多文件上传。请求体为 `multipart/form-data`，文件字段名为 `file` 或 `files`，响应 `data` 为 `UploadDTO[]`。
 
 ---
 

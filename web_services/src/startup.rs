@@ -20,6 +20,7 @@ use crate::routes::{
     dict_data_update, dict_type_create, dict_type_delete, dict_type_get, dict_type_update,
     dict_types_list, get_config_public,
 };
+use crate::routes::{file_download, file_upload, file_uploads};
 use crate::routes::{get_ani, get_anis};
 use crate::routes::{
     job_create, job_get, job_run, job_status_update, job_update, jobs_delete, jobs_list,
@@ -152,12 +153,16 @@ async fn create_server(
             .service(get_login_user_info)
             .service(get_routers)
             .service(Files::new("/uploads", "./uploads").prefer_utf8(true))
+            .service(Files::new("/profile", "./uploads/profile").prefer_utf8(true))
             // SSE 公开接口（无需认证，供落地页实时新闻使用）
             // 需要认证的 API 路由
             .service(
                 web::scope("/api").service(news_stream_sse).service(
                     web::scope("")
                         .wrap(AuthMiddleware)
+                        .service(file_download)
+                        .service(file_upload)
+                        .service(file_uploads)
                         .service(me)
                         .service(sync_task_source)
                         .service(sync_me_get)

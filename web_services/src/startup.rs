@@ -39,7 +39,9 @@ use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_upda
 use crate::routes::{
     monitor_cache_info, monitor_online_user_delete, monitor_online_users, monitor_server_info,
 };
-use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
+use crate::routes::{
+    notice_create, notice_delete, notice_get, notice_update, notices_list, notices_slave_list,
+};
 use crate::routes::{profile_avatar_update, profile_get, profile_password_update, profile_update};
 use crate::routes::{
     role_allocated_users_list, role_create, role_data_scope_update, role_delete, role_get,
@@ -146,6 +148,7 @@ fn configure_keystone_services(cfg: &mut web::ServiceConfig) {
         .service(menu_update)
         .service(menu_delete)
         .service(notices_list)
+        .service(notices_slave_list)
         .service(notice_get)
         .service(notice_create)
         .service(notice_update)

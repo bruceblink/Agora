@@ -48,6 +48,22 @@ async fn notices_list(
     }
 }
 
+#[get("/system/notices/database/slave")]
+async fn notices_slave_list(
+    req: HttpRequest,
+    query: web::Query<NoticeQuery>,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
+    crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
+    match list_notices(&query.into_inner(), &app_state.db_pool).await {
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Err(e) => {
+            tracing::error!("查询从库通知公告列表失败: {e:?}");
+            Err(ApiError::Database("查询从库通知公告列表失败".into()))
+        }
+    }
+}
+
 #[get("/system/notices/{notice_id}")]
 async fn notice_get(
     req: HttpRequest,

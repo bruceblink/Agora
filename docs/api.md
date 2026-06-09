@@ -38,6 +38,7 @@
   - [更新系统配置](#put-apisystemconfigconfigid)
   - [刷新系统配置缓存](#delete-apisystemconfigscache)
   - [分页查询通知公告](#get-apisystemnotices)
+  - [从库查询通知公告](#get-apisystemnoticesdatabaseslave)
   - [通知公告详情](#get-apisystemnoticesnoticeid)
   - [新增通知公告](#post-apisystemnotices)
   - [更新通知公告](#put-apisystemnoticesnoticeid)
@@ -777,6 +778,14 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
   }
 }
 ```
+
+---
+
+### GET `/api/system/notices/database/slave`
+
+Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `/api/system/notices`；Agora 当前使用同一数据库连接池返回列表。
+
+**需要认证，仅管理员**
 
 ---
 

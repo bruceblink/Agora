@@ -18,6 +18,8 @@ const MAX_FILE_NAME_LENGTH: usize = 127;
 const KEYSTONE_FILE_NOT_ALLOWED_CODE: i32 = 10004;
 const KEYSTONE_UPLOAD_FILE_EMPTY_CODE: i32 = 10405;
 const KEYSTONE_UPLOAD_FILE_EMPTY_MSG: &str = "上传文件为空";
+const KEYSTONE_UPLOAD_FILE_FAILED_CODE: i32 = 10406;
+const KEYSTONE_UPLOAD_FILE_FAILED_PREFIX: &str = "上传文件失败：";
 const ALLOWED_EXTENSIONS: &[&str] = &[
     "bmp", "gif", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "html", "htm",
     "txt", "rar", "zip", "gz", "bz2", "mp4", "avi", "rmvb", "pdf",
@@ -66,13 +68,18 @@ fn original_filename(field: &actix_multipart::Field) -> Result<String, ApiError>
 
 fn validate_upload_filename(filename: &str) -> Result<String, ApiError> {
     if filename.chars().count() > MAX_FILE_NAME_LENGTH {
-        return Err(ApiError::BadRequest(format!(
-            "文件名长度不能超过 {MAX_FILE_NAME_LENGTH}"
-        )));
+        return Err(ApiError::BadRequest(upload_failed_msg(format!(
+            "文件名长度超过：{MAX_FILE_NAME_LENGTH} "
+        ))));
     }
     let extension = file_extension(filename)
         .filter(|extension| is_allowed_extension(extension))
-        .ok_or_else(|| ApiError::BadRequest("文件类型不允许上传".into()))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest(upload_failed_msg(format!(
+                "不允许上传的文件类型，仅允许：{}",
+                ALLOWED_EXTENSIONS.join(",")
+            )))
+        })?;
     Ok(extension.to_ascii_lowercase())
 }
 
@@ -115,6 +122,20 @@ fn upload_file_empty_response() -> ApiResponse<()> {
         message: Some(KEYSTONE_UPLOAD_FILE_EMPTY_MSG.into()),
         data: None,
     }
+}
+
+fn upload_file_failed_response(msg: &str) -> ApiResponse<()> {
+    ApiResponse {
+        code: KEYSTONE_UPLOAD_FILE_FAILED_CODE,
+        msg: msg.into(),
+        status: "error".into(),
+        message: Some(msg.into()),
+        data: None,
+    }
+}
+
+fn upload_failed_msg(reason: impl AsRef<str>) -> String {
+    format!("{KEYSTONE_UPLOAD_FILE_FAILED_PREFIX}{}", reason.as_ref())
 }
 
 fn generated_filename(original_filename: &str, extension: &str) -> String {
@@ -250,6 +271,9 @@ async fn file_upload(req: HttpRequest, payload: Multipart) -> ApiResult {
         Err(ApiError::BadRequest(msg)) if msg == KEYSTONE_UPLOAD_FILE_EMPTY_MSG => {
             Ok(HttpResponse::Ok().json(upload_file_empty_response()))
         }
+        Err(ApiError::BadRequest(msg)) if msg.starts_with(KEYSTONE_UPLOAD_FILE_FAILED_PREFIX) => {
+            Ok(HttpResponse::Ok().json(upload_file_failed_response(&msg)))
+        }
         Err(error) => Err(error),
     }
 }
@@ -262,6 +286,9 @@ async fn file_uploads(req: HttpRequest, payload: Multipart) -> ApiResult {
         Err(ApiError::BadRequest(msg)) if msg == KEYSTONE_UPLOAD_FILE_EMPTY_MSG => {
             Ok(HttpResponse::Ok().json(upload_file_empty_response()))
         }
+        Err(ApiError::BadRequest(msg)) if msg.starts_with(KEYSTONE_UPLOAD_FILE_FAILED_PREFIX) => {
+            Ok(HttpResponse::Ok().json(upload_file_failed_response(&msg)))
+        }
         Err(error) => Err(error),
     }
 }
@@ -270,8 +297,9 @@ async fn file_uploads(req: HttpRequest, payload: Multipart) -> ApiResult {
 mod tests {
     use super::{
         KEYSTONE_FILE_NOT_ALLOWED_CODE, KEYSTONE_UPLOAD_FILE_EMPTY_CODE,
-        KEYSTONE_UPLOAD_FILE_EMPTY_MSG, MAX_FILE_SIZE, file_download, file_extension, file_upload,
-        file_uploads, generated_filename, is_allowed_extension, sanitize_filename,
+        KEYSTONE_UPLOAD_FILE_EMPTY_MSG, KEYSTONE_UPLOAD_FILE_FAILED_CODE, MAX_FILE_NAME_LENGTH,
+        MAX_FILE_SIZE, file_download, file_extension, file_upload, file_uploads,
+        generated_filename, is_allowed_extension, sanitize_filename, upload_failed_msg,
         upload_file_empty_response, validate_download_filename,
     };
     use actix_web::{
@@ -283,6 +311,12 @@ mod tests {
 
     fn ignored_field_multipart_payload() -> &'static str {
         "--agora-empty\r\nContent-Disposition: form-data; name=\"ignored\"\r\n\r\nvalue\r\n--agora-empty--\r\n"
+    }
+
+    fn file_multipart_payload(filename: &str, content: &str) -> String {
+        format!(
+            "--agora-file\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n{content}\r\n--agora-file--\r\n"
+        )
     }
 
     #[test]
@@ -339,6 +373,14 @@ mod tests {
         assert!(response.data.is_none());
     }
 
+    #[test]
+    fn upload_failed_message_wraps_keystone_validation_reason() {
+        assert_eq!(
+            upload_failed_msg("文件名长度超过：127 "),
+            "上传文件失败：文件名长度超过：127 "
+        );
+    }
+
     #[actix_web::test]
     async fn file_upload_returns_keystone_business_error_for_empty_payload() {
         let app = actix_web::test::init_service(App::new().service(file_upload)).await;
@@ -386,6 +428,62 @@ mod tests {
         assert_eq!(data["msg"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
         assert_eq!(data["status"], "error");
         assert_eq!(data["message"], KEYSTONE_UPLOAD_FILE_EMPTY_MSG);
+        assert!(data.get("data").is_none());
+    }
+
+    #[actix_web::test]
+    async fn file_upload_returns_keystone_failed_error_for_bad_extension() {
+        let app = actix_web::test::init_service(App::new().service(file_upload)).await;
+        let req = actix_web::test::TestRequest::post()
+            .uri("/file/upload")
+            .insert_header((
+                header::CONTENT_TYPE,
+                "multipart/form-data; boundary=agora-file",
+            ))
+            .set_payload(file_multipart_payload("payload.exe", "run"))
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_UPLOAD_FILE_FAILED_CODE);
+        assert_eq!(data["status"], "error");
+        assert!(
+            data["msg"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("上传文件失败：不允许上传的文件类型，仅允许：bmp,gif")
+        );
+        assert_eq!(data["message"], data["msg"]);
+        assert!(data.get("data").is_none());
+    }
+
+    #[actix_web::test]
+    async fn file_upload_returns_keystone_failed_error_for_long_filename() {
+        let app = actix_web::test::init_service(App::new().service(file_upload)).await;
+        let filename = format!("{}.txt", "a".repeat(MAX_FILE_NAME_LENGTH));
+        let req = actix_web::test::TestRequest::post()
+            .uri("/file/upload")
+            .insert_header((
+                header::CONTENT_TYPE,
+                "multipart/form-data; boundary=agora-file",
+            ))
+            .set_payload(file_multipart_payload(&filename, "body"))
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_UPLOAD_FILE_FAILED_CODE);
+        assert_eq!(data["msg"], "上传文件失败：文件名长度超过：127 ");
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], "上传文件失败：文件名长度超过：127 ");
         assert!(data.get("data").is_none());
     }
 

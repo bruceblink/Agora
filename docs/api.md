@@ -712,6 +712,17 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 }
 ```
 
+文件名超长或扩展名不在 Keystone 白名单时，返回 `10406` 包装后的上传失败响应：
+
+```json
+{
+  "code": 10406,
+  "msg": "上传文件失败：不允许上传的文件类型，仅允许：bmp,gif,jpg,jpeg,png,doc,docx,xls,xlsx,ppt,pptx,html,htm,txt,rar,zip,gz,bz2,mp4,avi,rmvb,pdf",
+  "status": "error",
+  "message": "上传文件失败：不允许上传的文件类型，仅允许：bmp,gif,jpg,jpeg,png,doc,docx,xls,xlsx,ppt,pptx,html,htm,txt,rar,zip,gz,bz2,mp4,avi,rmvb,pdf"
+}
+```
+
 ---
 
 ### POST `/api/file/uploads`

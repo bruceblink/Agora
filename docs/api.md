@@ -647,6 +647,17 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 **响应** `200 OK`，返回 `application/octet-stream` 文件流。
 
+非法 `fileName` 与 Keystone 一致仍返回 `200 OK`，body 为业务失败响应：
+
+```json
+{
+  "code": 10004,
+  "msg": "文件名称(../readme.txt)非法，不允许下载",
+  "status": "error",
+  "message": "文件名称(../readme.txt)非法，不允许下载"
+}
+```
+
 ---
 
 ### POST `/api/file/upload`

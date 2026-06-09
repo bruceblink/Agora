@@ -15,6 +15,7 @@ const DOWNLOAD_SUBDIR: &str = "download";
 const RESOURCE_PREFIX: &str = "/profile";
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 const MAX_FILE_NAME_LENGTH: usize = 127;
+const KEYSTONE_FILE_NOT_ALLOWED_CODE: i32 = 10004;
 const ALLOWED_EXTENSIONS: &[&str] = &[
     "bmp", "gif", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "html", "htm",
     "txt", "rar", "zip", "gz", "bz2", "mp4", "avi", "rmvb", "pdf",
@@ -91,6 +92,17 @@ fn validate_download_filename(filename: &str) -> Result<(), ApiError> {
         return Err(ApiError::BadRequest("文件类型不允许下载".into()));
     }
     Ok(())
+}
+
+fn file_not_allowed_response(filename: &str) -> ApiResponse<()> {
+    let msg = format!("文件名称({filename})非法，不允许下载");
+    ApiResponse {
+        code: KEYSTONE_FILE_NOT_ALLOWED_CODE,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
 }
 
 fn generated_filename(original_filename: &str, extension: &str) -> String {
@@ -197,7 +209,9 @@ fn request_base_url(req: &HttpRequest) -> String {
 #[get("/file/download")]
 async fn file_download(query: web::Query<DownloadQuery>) -> ApiResult {
     let file_name = query.into_inner().file_name;
-    validate_download_filename(&file_name)?;
+    if validate_download_filename(&file_name).is_err() {
+        return Ok(HttpResponse::Ok().json(file_not_allowed_response(&file_name)));
+    }
     let file_path = PathBuf::from(PROFILE_DIR)
         .join(DOWNLOAD_SUBDIR)
         .join(&file_name);
@@ -233,9 +247,11 @@ async fn file_uploads(req: HttpRequest, payload: Multipart) -> ApiResult {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_FILE_SIZE, file_extension, generated_filename, is_allowed_extension, sanitize_filename,
-        validate_download_filename,
+        KEYSTONE_FILE_NOT_ALLOWED_CODE, MAX_FILE_SIZE, file_download, file_extension,
+        generated_filename, is_allowed_extension, sanitize_filename, validate_download_filename,
     };
+    use actix_web::{App, body::to_bytes, http::StatusCode};
+    use serde_json::Value;
 
     #[test]
     fn file_size_limit_matches_keystone_default() {
@@ -255,6 +271,26 @@ mod tests {
         assert!(validate_download_filename("readme.txt").is_ok());
         assert!(validate_download_filename("../readme.txt").is_err());
         assert!(validate_download_filename("readme.exe").is_err());
+    }
+
+    #[actix_web::test]
+    async fn file_download_returns_keystone_business_error_for_invalid_name() {
+        let app = actix_web::test::init_service(App::new().service(file_download)).await;
+        let req = actix_web::test::TestRequest::get()
+            .uri("/file/download?fileName=../readme.txt")
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_FILE_NOT_ALLOWED_CODE);
+        assert_eq!(data["msg"], "文件名称(../readme.txt)非法，不允许下载");
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], "文件名称(../readme.txt)非法，不允许下载");
+        assert!(data.get("data").is_none());
     }
 
     #[test]

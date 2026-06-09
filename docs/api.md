@@ -836,6 +836,19 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 }
 ```
 
+配置值为空或不在候选项内时，与 Keystone 一致返回 `200 OK` 业务失败响应：
+
+```json
+{
+  "code": 10601,
+  "msg": "参数键值不允许为空",
+  "status": "error",
+  "message": "参数键值不允许为空"
+}
+```
+
+候选项不匹配时 `code` 为 `10602`，`msg/message` 为 `参数键值不存在列表中`。
+
 ---
 
 ### DELETE `/api/system/configs/cache`

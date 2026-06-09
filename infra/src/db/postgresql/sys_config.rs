@@ -3,6 +3,7 @@ use common::dto::{SystemConfigDTO, UpdateSystemConfigDTO};
 use common::po::PageData;
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
+use std::fmt;
 
 const CAPTCHA_CONFIG_KEY: &str = "sys.account.captchaOnOff";
 const DEFAULT_PAGE: u32 = 1;
@@ -32,6 +33,24 @@ struct SystemConfigRow {
     remark: Option<String>,
     create_time: chrono::DateTime<chrono::Utc>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemConfigValidationError {
+    ValueEmpty,
+    ValueNotInOptions,
+}
+
+impl fmt::Display for SystemConfigValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::ValueEmpty => "参数键值不允许为空",
+            Self::ValueNotInOptions => "参数键值不存在列表中",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for SystemConfigValidationError {}
 
 fn page_bounds(page: Option<u32>, page_size: Option<u32>) -> (u32, u32, i64) {
     let page = page.unwrap_or(DEFAULT_PAGE).max(1);
@@ -96,13 +115,16 @@ fn to_dto_with_total(row: SystemConfigWithTotal) -> SystemConfigDTO {
     })
 }
 
-fn validate_config_value(config_value: &str, config_options: &[String]) -> anyhow::Result<()> {
+fn validate_config_value(
+    config_value: &str,
+    config_options: &[String],
+) -> Result<(), SystemConfigValidationError> {
     if config_value.trim().is_empty() {
-        return Err(anyhow::anyhow!("配置值不能为空"));
+        return Err(SystemConfigValidationError::ValueEmpty);
     }
 
     if !config_options.is_empty() && !config_options.iter().any(|option| option == config_value) {
-        return Err(anyhow::anyhow!("配置值不在可选项中"));
+        return Err(SystemConfigValidationError::ValueNotInOptions);
     }
 
     Ok(())
@@ -247,7 +269,9 @@ pub async fn is_captcha_on(db_pool: &PgPool) -> anyhow::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{allow_change_flag, parse_config_options, validate_config_value};
+    use super::{
+        SystemConfigValidationError, allow_change_flag, parse_config_options, validate_config_value,
+    };
     use serde_json::json;
 
     #[test]
@@ -260,13 +284,17 @@ mod tests {
 
     #[test]
     fn validate_config_value_rejects_empty_value() {
-        assert!(validate_config_value(" ", &[]).is_err());
+        assert_eq!(
+            validate_config_value(" ", &[]).unwrap_err(),
+            SystemConfigValidationError::ValueEmpty
+        );
     }
 
     #[test]
     fn validate_config_value_rejects_value_outside_options() {
-        assert!(
-            validate_config_value("maybe", &["true".to_string(), "false".to_string()]).is_err()
+        assert_eq!(
+            validate_config_value("maybe", &["true".to_string(), "false".to_string()]).unwrap_err(),
+            SystemConfigValidationError::ValueNotInOptions
         );
     }
 

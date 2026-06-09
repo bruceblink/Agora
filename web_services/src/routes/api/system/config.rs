@@ -4,11 +4,37 @@ use common::SystemConfigQuery;
 use common::api::{ApiError, ApiResponse};
 use common::dto::UpdateSystemConfigDTO;
 use common::po::ApiResult;
-use infra::{get_system_config, list_system_configs, update_system_config};
+use infra::{
+    SystemConfigValidationError, get_system_config, list_system_configs, update_system_config,
+};
 
-fn validate_config_value(config_value: &str) -> Result<(), ApiError> {
+const KEYSTONE_CONFIG_VALUE_EMPTY_CODE: i32 = 10601;
+const KEYSTONE_CONFIG_VALUE_OPTIONS_CODE: i32 = 10602;
+
+fn config_validation_response(error: SystemConfigValidationError) -> ApiResponse<()> {
+    let (code, msg) = match error {
+        SystemConfigValidationError::ValueEmpty => (
+            KEYSTONE_CONFIG_VALUE_EMPTY_CODE,
+            SystemConfigValidationError::ValueEmpty.to_string(),
+        ),
+        SystemConfigValidationError::ValueNotInOptions => (
+            KEYSTONE_CONFIG_VALUE_OPTIONS_CODE,
+            SystemConfigValidationError::ValueNotInOptions.to_string(),
+        ),
+    };
+
+    ApiResponse {
+        code,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
+}
+
+fn validate_config_value(config_value: &str) -> Result<(), SystemConfigValidationError> {
     if config_value.trim().is_empty() {
-        Err(ApiError::BadRequest("configValue 不能为空".into()))
+        Err(SystemConfigValidationError::ValueEmpty)
     } else {
         Ok(())
     }
@@ -57,11 +83,16 @@ async fn system_config_update(
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
     let config_id = path.into_inner();
     let data = body.into_inner();
-    validate_config_value(&data.config_value)?;
+    if let Err(error) = validate_config_value(&data.config_value) {
+        return Ok(HttpResponse::Ok().json(config_validation_response(error)));
+    }
 
     match update_system_config(config_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemConfigValidationError>() {
+                return Ok(HttpResponse::Ok().json(config_validation_response(*error)));
+            }
             tracing::error!("更新系统配置 {config_id} 失败: {e:?}");
             Err(ApiError::BadRequest(format!(
                 "更新系统配置 {config_id} 失败"
@@ -81,7 +112,12 @@ async fn system_config_cache_refresh(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_config_value;
+    use super::{
+        KEYSTONE_CONFIG_VALUE_EMPTY_CODE, KEYSTONE_CONFIG_VALUE_OPTIONS_CODE,
+        config_validation_response, validate_config_value,
+    };
+    use infra::SystemConfigValidationError;
+    use serde_json::json;
 
     #[test]
     fn validate_config_value_rejects_blank_value() {
@@ -92,5 +128,28 @@ mod tests {
     #[test]
     fn validate_config_value_accepts_non_blank_value() {
         assert!(validate_config_value("false").is_ok());
+    }
+
+    #[test]
+    fn config_validation_response_matches_keystone_business_errors() {
+        let empty = serde_json::to_value(config_validation_response(
+            SystemConfigValidationError::ValueEmpty,
+        ))
+        .unwrap_or_else(|_| json!(null));
+        assert_eq!(empty["code"], KEYSTONE_CONFIG_VALUE_EMPTY_CODE);
+        assert_eq!(empty["msg"], "参数键值不允许为空");
+        assert_eq!(empty["status"], "error");
+        assert_eq!(empty["message"], "参数键值不允许为空");
+        assert!(empty.get("data").is_none());
+
+        let options = serde_json::to_value(config_validation_response(
+            SystemConfigValidationError::ValueNotInOptions,
+        ))
+        .unwrap_or_else(|_| json!(null));
+        assert_eq!(options["code"], KEYSTONE_CONFIG_VALUE_OPTIONS_CODE);
+        assert_eq!(options["msg"], "参数键值不存在列表中");
+        assert_eq!(options["status"], "error");
+        assert_eq!(options["message"], "参数键值不存在列表中");
+        assert!(options.get("data").is_none());
     }
 }

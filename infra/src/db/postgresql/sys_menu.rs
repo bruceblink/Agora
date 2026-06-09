@@ -1,4 +1,5 @@
 use common::MenuQuery;
+use common::dto::MenuDetailResponseDTO;
 use common::dto::RouterDTO;
 use common::dto::{
     CreateMenuDTO, MenuDTO, MenuDetailDTO, MenuDropdownDTO, MenuMetaDTO, UpdateMenuDTO,
@@ -6,6 +7,7 @@ use common::dto::{
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder, Transaction};
 use std::cmp::Ordering;
+use std::fmt;
 
 #[derive(Debug, Clone, FromRow)]
 struct MenuRow {
@@ -42,6 +44,39 @@ struct NormalizedMenu {
     permission: String,
     meta: MenuMetaDTO,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemMenuBusinessError {
+    ObjectNotFound { id: i64 },
+    NameNotUnique,
+    ExternalLinkMustBeHttp,
+    ParentIdNotAllowSelf,
+    HasChildMenus,
+    AlreadyAssignedToRole,
+    ButtonNotAllowedInIframeOrOutLink,
+    SubMenuOnlyAllowedInCatalog,
+    CanNotChangeMenuType,
+}
+
+impl fmt::Display for SystemMenuBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id } => write!(f, "找不到ID为 {id} 的 菜单"),
+            Self::NameNotUnique => f.write_str("新增菜单:{} 失败，菜单名称已存在"),
+            Self::ExternalLinkMustBeHttp => f.write_str("菜单外链必须以 http(s)://开头"),
+            Self::ParentIdNotAllowSelf => f.write_str("父级菜单不能选择自身"),
+            Self::HasChildMenus => f.write_str("存在子菜单不允许删除"),
+            Self::AlreadyAssignedToRole => f.write_str("菜单已分配给角色，不允许"),
+            Self::ButtonNotAllowedInIframeOrOutLink => {
+                f.write_str("不允许在Iframe和外链跳转类型下创建按钮")
+            }
+            Self::SubMenuOnlyAllowedInCatalog => f.write_str("只允许在目录类型底下创建子菜单"),
+            Self::CanNotChangeMenuType => f.write_str("不允许更改菜单的类型"),
+        }
+    }
+}
+
+impl std::error::Error for SystemMenuBusinessError {}
 
 fn status_str(status: i16) -> String {
     match status {
@@ -185,7 +220,7 @@ fn normalize_menu(
     validate_menu_type(menu_type, is_button)?;
 
     if menu_type == 4 && !(path.starts_with("http://") || path.starts_with("https://")) {
-        return Err(anyhow::anyhow!("菜单外链必须以 http(s)://开头"));
+        return Err(SystemMenuBusinessError::ExternalLinkMustBeHttp.into());
     }
 
     Ok(NormalizedMenu {
@@ -214,11 +249,11 @@ async fn check_parent_rules(menu: &NormalizedMenu, db_pool: &PgPool) -> anyhow::
 
     if let Some((parent_menu_type,)) = parent {
         if menu.is_button && matches!(parent_menu_type, 3 | 4) {
-            return Err(anyhow::anyhow!("不允许在Iframe和外链跳转类型下创建按钮"));
+            return Err(SystemMenuBusinessError::ButtonNotAllowedInIframeOrOutLink.into());
         }
 
         if !menu.is_button && parent_menu_type != 2 {
-            return Err(anyhow::anyhow!("只允许在目录类型底下创建子菜单"));
+            return Err(SystemMenuBusinessError::SubMenuOnlyAllowedInCatalog.into());
         }
     }
 
@@ -250,7 +285,7 @@ async fn check_menu_name_unique(
     .await?;
 
     if duplicated {
-        Err(anyhow::anyhow!("新增菜单失败，菜单名称已存在"))
+        Err(SystemMenuBusinessError::NameNotUnique.into())
     } else {
         Ok(())
     }
@@ -366,7 +401,10 @@ pub async fn list_menus(query: &MenuQuery, db_pool: &PgPool) -> anyhow::Result<V
     Ok(rows.into_iter().map(menu_dto).collect())
 }
 
-pub async fn get_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<MenuDetailDTO> {
+pub async fn get_menu(
+    menu_id: i64,
+    db_pool: &PgPool,
+) -> anyhow::Result<Option<MenuDetailResponseDTO>> {
     let row = sqlx::query_as::<_, MenuRow>(
         r#"
         SELECT menu_id, menu_name, menu_type, router_name, parent_id, path,
@@ -377,10 +415,9 @@ pub async fn get_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<MenuDeta
     )
     .bind(menu_id)
     .fetch_optional(db_pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("菜单不存在"))?;
+    .await?;
 
-    Ok(menu_detail_dto(row))
+    Ok(row.map(menu_detail_dto).map(MenuDetailResponseDTO::from))
 }
 
 pub async fn list_menu_dropdown(db_pool: &PgPool) -> anyhow::Result<Vec<MenuDropdownDTO>> {
@@ -500,7 +537,7 @@ pub async fn update_menu(
     .await?;
 
     let (existing_menu_type, existing_is_button) =
-        existing.ok_or_else(|| anyhow::anyhow!("菜单不存在"))?;
+        existing.ok_or(SystemMenuBusinessError::ObjectNotFound { id: menu_id })?;
 
     let menu = normalize_menu(
         data.parent_id,
@@ -516,11 +553,11 @@ pub async fn update_menu(
     )?;
 
     if menu_id == menu.parent_id {
-        return Err(anyhow::anyhow!("父级菜单不能选择自身"));
+        return Err(SystemMenuBusinessError::ParentIdNotAllowSelf.into());
     }
 
     if !existing_is_button && existing_menu_type != menu.menu_type {
-        return Err(anyhow::anyhow!("不允许更改菜单的类型"));
+        return Err(SystemMenuBusinessError::CanNotChangeMenuType.into());
     }
 
     check_parent_rules(&menu, db_pool).await?;
@@ -559,7 +596,7 @@ pub async fn update_menu(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("菜单不存在"));
+        return Err(SystemMenuBusinessError::ObjectNotFound { id: menu_id }.into());
     }
 
     grant_permission_to_admin(&mut tx, &menu.permission, &menu.menu_name).await?;
@@ -577,7 +614,7 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
     .await?;
 
     if !exists {
-        return Err(anyhow::anyhow!("菜单不存在"));
+        return Err(SystemMenuBusinessError::ObjectNotFound { id: menu_id }.into());
     }
 
     let has_child: bool = sqlx::query_scalar(
@@ -587,7 +624,7 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
     .fetch_one(db_pool)
     .await?;
     if has_child {
-        return Err(anyhow::anyhow!("存在子菜单不允许删除"));
+        return Err(SystemMenuBusinessError::HasChildMenus.into());
     }
 
     let assigned_to_role: bool =
@@ -596,7 +633,7 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
             .fetch_one(db_pool)
             .await?;
     if assigned_to_role {
-        return Err(anyhow::anyhow!("菜单已分配给角色，不允许删除"));
+        return Err(SystemMenuBusinessError::AlreadyAssignedToRole.into());
     }
 
     sqlx::query("UPDATE sys_menu SET deleted = TRUE WHERE menu_id = $1")
@@ -609,7 +646,10 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MenuRow, build_router_tree, normalize_menu, validate_menu_type, validate_status};
+    use super::{
+        MenuRow, SystemMenuBusinessError, build_router_tree, normalize_menu, validate_menu_type,
+        validate_status,
+    };
     use chrono::Utc;
 
     #[test]
@@ -642,6 +682,52 @@ mod tests {
             None,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn business_errors_match_keystone_messages() {
+        let cases = [
+            (
+                SystemMenuBusinessError::ObjectNotFound { id: 6 },
+                "找不到ID为 6 的 菜单",
+            ),
+            (
+                SystemMenuBusinessError::NameNotUnique,
+                "新增菜单:{} 失败，菜单名称已存在",
+            ),
+            (
+                SystemMenuBusinessError::ExternalLinkMustBeHttp,
+                "菜单外链必须以 http(s)://开头",
+            ),
+            (
+                SystemMenuBusinessError::ParentIdNotAllowSelf,
+                "父级菜单不能选择自身",
+            ),
+            (
+                SystemMenuBusinessError::HasChildMenus,
+                "存在子菜单不允许删除",
+            ),
+            (
+                SystemMenuBusinessError::AlreadyAssignedToRole,
+                "菜单已分配给角色，不允许",
+            ),
+            (
+                SystemMenuBusinessError::ButtonNotAllowedInIframeOrOutLink,
+                "不允许在Iframe和外链跳转类型下创建按钮",
+            ),
+            (
+                SystemMenuBusinessError::SubMenuOnlyAllowedInCatalog,
+                "只允许在目录类型底下创建子菜单",
+            ),
+            (
+                SystemMenuBusinessError::CanNotChangeMenuType,
+                "不允许更改菜单的类型",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

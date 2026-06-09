@@ -457,6 +457,70 @@ pub struct MenuDetailDTO {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MenuDetailResponseDTO {
+    pub id: Option<i64>,
+    pub parent_id: Option<i64>,
+    pub menu_name: Option<String>,
+    pub router_name: Option<String>,
+    pub path: Option<String>,
+    pub rank: Option<i32>,
+    pub menu_type: Option<i16>,
+    pub menu_type_str: Option<String>,
+    pub is_button: Option<bool>,
+    pub status: Option<i16>,
+    pub status_str: Option<String>,
+    pub create_time: Option<chrono::DateTime<Utc>>,
+    pub icon: Option<String>,
+    pub permission: Option<String>,
+    pub meta: Option<MenuMetaDTO>,
+}
+
+impl MenuDetailResponseDTO {
+    pub fn empty() -> Self {
+        Self {
+            id: None,
+            parent_id: None,
+            menu_name: None,
+            router_name: None,
+            path: None,
+            rank: None,
+            menu_type: None,
+            menu_type_str: None,
+            is_button: None,
+            status: None,
+            status_str: None,
+            create_time: None,
+            icon: None,
+            permission: None,
+            meta: None,
+        }
+    }
+}
+
+impl From<MenuDetailDTO> for MenuDetailResponseDTO {
+    fn from(value: MenuDetailDTO) -> Self {
+        Self {
+            id: Some(value.menu.id),
+            parent_id: Some(value.menu.parent_id),
+            menu_name: Some(value.menu.menu_name),
+            router_name: Some(value.menu.router_name),
+            path: Some(value.menu.path),
+            rank: value.menu.rank,
+            menu_type: Some(value.menu.menu_type),
+            menu_type_str: value.menu.menu_type_str,
+            is_button: Some(value.menu.is_button),
+            status: Some(value.menu.status),
+            status_str: Some(value.menu.status_str),
+            create_time: Some(value.menu.create_time),
+            icon: value.menu.icon,
+            permission: Some(value.permission),
+            meta: Some(value.meta),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MenuDropdownDTO {
     pub id: i64,
     pub parent_id: i64,

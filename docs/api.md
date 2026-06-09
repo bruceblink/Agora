@@ -67,11 +67,15 @@
   - [更新部门](#put-apisystemdeptdeptid)
   - [删除部门](#delete-apisystemdeptdeptid)
   - [分页查询岗位](#get-apisystempostlist)
+  - [导出岗位列表](#get-apisystempostexcel)
   - [岗位详情](#get-apisystempostpostid)
   - [新增岗位](#post-apisystempost)
   - [更新岗位](#put-apisystempost)
   - [删除岗位](#delete-apisystempost)
   - [分页查询系统用户](#get-apisystemusers)
+  - [导出系统用户列表](#get-apisystemusersexcel)
+  - [下载系统用户导入模板](#get-apisystemusersexceltemplate)
+  - [导入系统用户](#post-apisystemusersexcel)
   - [系统用户详情](#get-apisystemusersuserid)
   - [新增系统用户](#post-apisystemusers)
   - [更新系统用户](#put-apisystemusersuserid)
@@ -1198,6 +1202,16 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ---
 
+### GET `/api/system/post/excel`
+
+导出 Keystone 兼容岗位列表 xlsx 文件。Query 参数同分页查询岗位接口，当前单次导出最多 500 条。
+
+**需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
+---
+
 ### GET `/api/system/post/{postId}`
 
 岗位详情。
@@ -1270,6 +1284,34 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 | `status` | number | `1`=正常 / `0`=停用 | — |
 
 **响应** `200 OK` → `PageData<SystemUserDTO>`
+
+---
+
+### GET `/api/system/users/excel`
+
+导出 Keystone 兼容系统用户列表 xlsx 文件。Query 参数同分页查询系统用户接口，当前单次导出最多 500 条。
+
+**需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
+---
+
+### GET `/api/system/users/excelTemplate`
+
+下载系统用户批量导入 xlsx 模板，表头与 Keystone `AddUserCommand` 导入列保持一致。
+
+**需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
+---
+
+### POST `/api/system/users/excel`
+
+用户 Excel 导入入口。当前接口会返回 `400 Bad Request`，导入处理后续随用户批量导入功能补齐。
+
+**需要认证，仅管理员**
 
 ---
 
@@ -1541,9 +1583,11 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### GET `/api/logs/loginLogs/excel`
 
-导出登录日志。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+导出 Keystone 兼容登录日志 xlsx 文件。Query 参数同分页查询登录日志接口，当前单次导出最多 500 条。
 
 **需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 
 ---
 
@@ -1645,9 +1689,11 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### GET `/api/logs/operationLogs/excel`
 
-导出操作日志。当前返回与分页查询一致的 JSON 结构，后续报表阶段再补 Excel 文件流。
+导出 Keystone 兼容操作日志 xlsx 文件。Query 参数同分页查询操作日志接口，当前单次导出最多 500 条。
 
 **需要认证，仅管理员**
+
+**响应** `200 OK` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 
 ---
 

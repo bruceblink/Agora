@@ -41,5 +41,6 @@ lazy_static.workspace = true
 rand.workspace = true
 mime.workspace = true
 sysinfo.workspace = true
+rust_xlsxwriter.workspace = true
 infra = {path = "../infra"}
 service = {path = "../service"}

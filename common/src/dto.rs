@@ -486,6 +486,170 @@ pub struct UpdateRoleDataScopeDTO {
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
+pub struct DeptDTO {
+    pub id: i64,
+    pub parent_id: i64,
+    pub dept_name: String,
+    pub order_num: i32,
+    pub leader_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub status: i16,
+    pub status_str: String,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDeptDTO {
+    pub parent_id: i64,
+    pub dept_name: String,
+    pub order_num: i32,
+    pub leader_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub status: Option<i16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDeptDTO {
+    pub dept_id: Option<i64>,
+    pub id: Option<i64>,
+    pub parent_id: i64,
+    pub dept_name: String,
+    pub order_num: i32,
+    pub leader_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub status: Option<i16>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct PostDTO {
+    pub post_id: i64,
+    pub post_code: String,
+    pub post_name: String,
+    pub post_sort: i32,
+    pub remark: Option<String>,
+    pub status: i16,
+    pub status_str: String,
+    pub create_time: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePostDTO {
+    pub post_code: String,
+    pub post_name: String,
+    pub post_sort: i32,
+    pub remark: Option<String>,
+    pub status: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePostDTO {
+    pub post_id: i64,
+    pub post_code: String,
+    pub post_name: String,
+    pub post_sort: i32,
+    pub remark: Option<String>,
+    pub status: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemUserDTO {
+    pub user_id: i64,
+    pub post_id: Option<i64>,
+    pub post_name: Option<String>,
+    pub role_id: Option<i64>,
+    pub role_name: Option<String>,
+    pub dept_id: Option<i64>,
+    pub dept_name: Option<String>,
+    pub username: String,
+    pub nickname: Option<String>,
+    pub user_type: Option<i16>,
+    pub email: Option<String>,
+    pub phone_number: Option<String>,
+    pub sex: Option<i16>,
+    pub avatar: Option<String>,
+    pub status: i16,
+    pub login_ip: Option<String>,
+    pub login_date: Option<chrono::DateTime<Utc>>,
+    pub creator_id: Option<i64>,
+    pub creator_name: Option<String>,
+    pub create_time: chrono::DateTime<Utc>,
+    pub updater_id: Option<i64>,
+    pub updater_name: Option<String>,
+    pub update_time: Option<chrono::DateTime<Utc>>,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDetailDTO {
+    pub user: Option<SystemUserDTO>,
+    pub role_options: Vec<RoleDTO>,
+    pub post_options: Vec<PostDTO>,
+    pub post_id: Option<i64>,
+    pub role_id: Option<i64>,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSystemUserDTO {
+    pub dept_id: Option<i64>,
+    pub username: String,
+    pub nickname: Option<String>,
+    pub email: Option<String>,
+    pub phone_number: Option<String>,
+    pub sex: Option<i16>,
+    pub avatar: Option<String>,
+    pub password: String,
+    pub status: Option<i16>,
+    pub role_id: Option<i64>,
+    pub post_id: Option<i64>,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSystemUserDTO {
+    pub user_id: Option<i64>,
+    pub dept_id: Option<i64>,
+    pub username: Option<String>,
+    pub nickname: Option<String>,
+    pub email: Option<String>,
+    pub phone_number: Option<String>,
+    pub sex: Option<i16>,
+    pub avatar: Option<String>,
+    pub password: Option<String>,
+    pub status: Option<i16>,
+    pub role_id: Option<i64>,
+    pub post_id: Option<i64>,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetUserPasswordDTO {
+    pub user_id: Option<i64>,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserStatusDTO {
+    pub user_id: Option<i64>,
+    pub status: i16,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct LoginLogDTO {
     pub log_id: String,
     pub username: String,

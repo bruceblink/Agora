@@ -11,6 +11,7 @@ mod sys_log;
 mod sys_menu;
 mod sys_notice;
 mod sys_role;
+mod sys_user;
 mod user_info_table;
 
 pub use ani_collect_table::*;
@@ -26,4 +27,5 @@ pub use sys_log::*;
 pub use sys_menu::*;
 pub use sys_notice::*;
 pub use sys_role::*;
+pub use sys_user::*;
 pub use user_info_table::*;

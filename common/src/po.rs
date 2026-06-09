@@ -121,14 +121,32 @@ pub struct QueryPage<T> {
 pub type ApiResult = Result<HttpResponse, ApiError>;
 
 /// 分页数据结构
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct PageData<T> {
     pub items: Vec<T>,      // 当前页的数据
     pub total_count: usize, // 总条数
     pub page: u32,          // 当前页码（1开始）
     pub page_size: u32,     // 每页数量
     pub total_pages: u32,   // 总页数
+}
+
+impl<T: Serialize> Serialize for PageData<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("PageData", 7)?;
+        state.serialize_field("items", &self.items)?;
+        state.serialize_field("rows", &self.items)?;
+        state.serialize_field("totalCount", &self.total_count)?;
+        state.serialize_field("total", &self.total_count)?;
+        state.serialize_field("page", &self.page)?;
+        state.serialize_field("pageSize", &self.page_size)?;
+        state.serialize_field("totalPages", &self.total_pages)?;
+        state.end()
+    }
 }
 
 pub type ItemResult = HashMap<String, HashSet<TaskItem>>;

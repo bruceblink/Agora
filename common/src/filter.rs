@@ -110,6 +110,47 @@ pub struct RoleQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeptQuery {
+    pub dept_id: Option<i64>,
+    pub parent_id: Option<i64>,
+    pub status: Option<i16>,
+    pub dept_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostQuery {
+    pub post_code: Option<String>,
+    pub post_name: Option<String>,
+    pub status: Option<i16>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+    pub order_column: Option<String>,
+    pub order_direction: Option<String>,
+    pub begin_time: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemUserQuery {
+    pub user_id: Option<i64>,
+    pub username: Option<String>,
+    pub status: Option<i16>,
+    pub phone_number: Option<String>,
+    pub dept_id: Option<i64>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+    pub order_column: Option<String>,
+    pub order_direction: Option<String>,
+    pub begin_time: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoginLogQuery {
     pub ip_address: Option<String>,
     pub status: Option<String>,

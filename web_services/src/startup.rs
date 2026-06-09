@@ -6,6 +6,12 @@ use crate::routes::{
 };
 use crate::routes::{auth_github_callback, auth_github_login, auth_token_refresh};
 use crate::routes::{
+    dept_create, dept_delete, dept_get, dept_update, depts_dropdown, depts_list, post_create,
+    post_get, post_update, posts_delete, posts_export, posts_list, user_create, user_get,
+    user_password_update, user_status_update, user_update, users_delete, users_excel_template,
+    users_export, users_import, users_list,
+};
+use crate::routes::{
     dict_data_by_type, dict_data_create, dict_data_delete, dict_data_get, dict_data_list,
     dict_data_update, dict_type_create, dict_type_delete, dict_type_get, dict_type_update,
     dict_types_list, get_config_public,
@@ -180,6 +186,28 @@ async fn create_server(
                         .service(role_create)
                         .service(role_update)
                         .service(role_delete)
+                        .service(depts_list)
+                        .service(depts_dropdown)
+                        .service(dept_get)
+                        .service(dept_create)
+                        .service(dept_update)
+                        .service(dept_delete)
+                        .service(posts_list)
+                        .service(posts_export)
+                        .service(post_get)
+                        .service(post_create)
+                        .service(post_update)
+                        .service(posts_delete)
+                        .service(users_list)
+                        .service(users_export)
+                        .service(users_excel_template)
+                        .service(users_import)
+                        .service(user_get)
+                        .service(user_create)
+                        .service(user_update)
+                        .service(user_password_update)
+                        .service(user_status_update)
+                        .service(users_delete)
                         .service(jobs_list)
                         .service(job_get)
                         .service(job_create)

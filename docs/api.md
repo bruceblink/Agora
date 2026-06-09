@@ -44,6 +44,24 @@
   - [更新角色状态](#put-apisystemroleroleidstatus)
   - [更新角色数据范围](#put-apisystemroleroleiddatascope)
   - [删除角色](#delete-apisystemroleroleids)
+  - [查询部门列表](#get-apisystemdepts)
+  - [部门下拉树](#get-apisystemdeptsdropdown)
+  - [部门详情](#get-apisystemdeptdeptid)
+  - [新增部门](#post-apisystemdept)
+  - [更新部门](#put-apisystemdeptdeptid)
+  - [删除部门](#delete-apisystemdeptdeptid)
+  - [分页查询岗位](#get-apisystempostlist)
+  - [岗位详情](#get-apisystempostpostid)
+  - [新增岗位](#post-apisystempost)
+  - [更新岗位](#put-apisystempost)
+  - [删除岗位](#delete-apisystempost)
+  - [分页查询系统用户](#get-apisystemusers)
+  - [系统用户详情](#get-apisystemusersuserid)
+  - [新增系统用户](#post-apisystemusers)
+  - [更新系统用户](#put-apisystemusersuserid)
+  - [重置系统用户密码](#put-apisystemusersuseridpassword)
+  - [更新系统用户状态](#put-apisystemusersuseridstatus)
+  - [删除系统用户](#delete-apisystemusersuserids)
   - [分页查询字典类型](#get-apisystemdicttypes)
   - [字典类型详情](#get-apisystemdicttypedictid)
   - [新增字典类型](#post-apisystemdicttype)
@@ -117,13 +135,17 @@
   "status": "ok",
   "data": {
     "items": [],
+    "rows": [],
     "totalCount": 100,
+    "total": 100,
     "page": 1,
     "pageSize": 20,
     "totalPages": 5
   }
 }
 ```
+
+`items` / `totalCount` 是 Agora 原生字段；`rows` / `total` 是 Keystone 前端兼容字段，内容保持一致。
 
 ### 分页查询参数（通用）
 
@@ -744,6 +766,249 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 ### DELETE `/api/system/role/{roleIds}`
 
 删除一个或多个角色；已分配给用户的角色不能删除。多个 ID 使用逗号分隔，例如 `/api/system/role/4,5`。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/depts`
+
+查询 Keystone 兼容部门列表。返回一维数组，前端可按 `id` / `parentId` 组装树。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `deptId` | number | 部门 ID |
+| `parentId` | number | 上级部门 ID |
+| `deptName` | string | 部门名称，模糊匹配 |
+| `status` | number | `1`=正常 / `0`=停用 |
+
+---
+
+### GET `/api/system/depts/dropdown`
+
+部门下拉树数据。当前返回与部门列表一致的一维数组，前端 `handleTree` 负责组装。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/dept/{deptId}`
+
+部门详情。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/dept`
+
+新增部门。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "parentId": 1,
+  "deptName": "研发平台",
+  "orderNum": 10,
+  "leaderName": "alice",
+  "phone": "15800000000",
+  "email": "alice@example.com",
+  "status": 1
+}
+```
+
+---
+
+### PUT `/api/system/dept/{deptId}`
+
+更新部门。父级不能选择自身，存在同级同名部门时返回请求错误。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/dept/{deptId}`
+
+删除部门。存在子部门或已分配用户时不允许删除。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/post/list`
+
+分页查询 Keystone 兼容岗位列表。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 10 |
+| `postCode` | string | 岗位编码，精确匹配 | — |
+| `postName` | string | 岗位名称，模糊匹配 | — |
+| `status` | number | `1`=正常 / `0`=停用 | — |
+| `orderColumn` | string | `postSort` / `createTime` 等 | `postSort` |
+| `orderDirection` | string | `ascending` / `descending` | `ascending` |
+
+**响应** `200 OK` → `PageData<PostDTO>`
+
+---
+
+### GET `/api/system/post/{postId}`
+
+岗位详情。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/post`
+
+新增岗位。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "postCode": "rd",
+  "postName": "研发工程师",
+  "postSort": 10,
+  "status": "1",
+  "remark": "研发岗位"
+}
+```
+
+---
+
+### PUT `/api/system/post`
+
+更新岗位。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "postId": 5,
+  "postCode": "rd",
+  "postName": "研发工程师",
+  "postSort": 10,
+  "status": "1",
+  "remark": "研发岗位"
+}
+```
+
+---
+
+### DELETE `/api/system/post`
+
+删除一个或多个岗位，Query 使用 `ids=1,2`。已分配给用户的岗位不能删除。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/users`
+
+分页查询 Keystone 兼容系统用户列表。Agora 仍使用 `user_info` 作为登录主体表，并扩展部门、岗位、用户状态等管理字段。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 10 |
+| `userId` | number | 用户 ID | — |
+| `username` | string | 用户名，模糊匹配 | — |
+| `phoneNumber` | string | 手机号，模糊匹配 | — |
+| `deptId` | number | 部门 ID，包含子部门 | — |
+| `status` | number | `1`=正常 / `0`=停用 | — |
+
+**响应** `200 OK` → `PageData<SystemUserDTO>`
+
+---
+
+### GET `/api/system/users/{userId}`
+
+系统用户详情，返回 `user`、`roleOptions`、`postOptions`、`roleId`、`postId` 和权限列表。
+
+**需要认证，仅管理员**
+
+---
+
+### POST `/api/system/users`
+
+新增系统用户，并同步单角色关系到 Agora 的 `user_roles`。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "deptId": 4,
+  "username": "alice",
+  "nickname": "Alice",
+  "email": "alice@example.com",
+  "phoneNumber": "15800000000",
+  "sex": 2,
+  "password": "password123",
+  "status": 1,
+  "roleId": 2,
+  "postId": 4,
+  "remark": ""
+}
+```
+
+---
+
+### PUT `/api/system/users/{userId}`
+
+更新系统用户资料、部门、岗位和单角色关系。
+
+**需要认证，仅管理员**
+
+---
+
+### PUT `/api/system/users/{userId}/password`
+
+重置系统用户密码。密码会用 bcrypt 重新哈希，并递增 `tokenVersion` 使旧 JWT 失效。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "userId": 2,
+  "password": "newPassword123"
+}
+```
+
+---
+
+### PUT `/api/system/users/{userId}/status`
+
+更新系统用户状态，并同步 Agora 登录状态：`1` 映射为 `active`，其他状态映射为不可登录。
+
+**需要认证，仅管理员**
+
+```json
+{
+  "status": 0
+}
+```
+
+---
+
+### DELETE `/api/system/users/{userIds}`
+
+删除一个或多个用户，多个 ID 使用逗号分隔，例如 `/api/system/users/2,3`。当前登录用户和超级管理员不允许删除。
 
 **需要认证，仅管理员**
 

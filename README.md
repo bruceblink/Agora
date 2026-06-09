@@ -57,7 +57,7 @@ agora/
 
 | 表名 | 说明 |
 | --- | --- |
-| `user_info` | 系统用户，含 SaaS 字段（tenant_id / plan）、安全字段（token_version / status / locked_until） |
+| `user_info` | 系统用户，含 SaaS 字段、安全字段，并扩展 Keystone 用户管理字段（deptId / postId / userStatus） |
 | `user_identities` | 第三方登录绑定（GitHub 等），唯一约束 `(provider, provider_uid)` |
 | `refresh_tokens` | Refresh Token，支持滑动窗口会话（`session_expires_at`） |
 | `user_setting` | 用户个性化设置（JSONB） |
@@ -82,6 +82,8 @@ agora/
 | `sys_config` | 系统参数配置，兼容 Keystone 的 `configKey` / `configValue` 管理模型 |
 | `sys_notice` | 通知公告，兼容 Keystone 的公告列表、详情、增删改模型 |
 | `sys_menu` | 菜单权限，兼容 Keystone 的菜单列表、详情、下拉树和增删改模型 |
+| `sys_dept` | 部门信息，兼容 Keystone 部门树和用户筛选模型 |
+| `sys_post` | 岗位信息，兼容 Keystone 岗位列表、详情、增删改模型 |
 | `sys_login_info` | 登录日志，兼容 Keystone 的登录/退出/注册状态记录 |
 | `sys_operation_log` | 操作日志，兼容 Keystone 的操作类型、请求方式和操作者信息 |
 

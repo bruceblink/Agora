@@ -287,6 +287,13 @@ async fn login(
         .json(ApiResponse::ok(token_dto)))
 }
 
+#[post("/login/keylo")]
+async fn keylo_login_compat() -> Result<HttpResponse, ApiError> {
+    Err(ApiError::BadRequest(
+        "Keylo token 登录未启用，请使用 /login".into(),
+    ))
+}
+
 #[post("/logout")]
 async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let username = req

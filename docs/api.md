@@ -12,6 +12,7 @@
 - [响应结构](#响应结构)
 - [认证 / 鉴权](#认证--鉴权)
   - [登录](#post-login)
+  - [Keylo Token 登录兼容入口](#post-loginkeylo)
   - [验证码](#get-captchaimage)
   - [登录 RSA 公钥](#get-loginrsa-public-key)
   - [刷新 Keystone Token](#post-refresh-token)
@@ -237,6 +238,23 @@
       }
     }
   }
+}
+```
+
+---
+
+### POST `/login/keylo`
+
+Keystone 历史 Keylo token 登录入口。Agora 当前未配置 Keylo token verifier，该兼容端点会返回 `400 Bad Request` 并提示使用 `/login`。
+
+**无需认证**
+
+**请求体** `application/json`
+
+```json
+{
+  "accessToken": "keylo-access-token",
+  "forceLogin": false
 }
 ```
 

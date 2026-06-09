@@ -26,8 +26,8 @@ use crate::routes::{
     job_create, job_get, job_run, job_status_update, job_update, jobs_delete, jobs_list,
 };
 use crate::routes::{
-    login, logout, news_event_items_get, news_events_get, news_get, news_items_get,
-    news_stream_sse, proxy_image, scheduled_tasks_create, scheduled_tasks_delete,
+    keylo_login_compat, login, logout, news_event_items_get, news_events_get, news_get,
+    news_items_get, news_stream_sse, proxy_image, scheduled_tasks_create, scheduled_tasks_delete,
     scheduled_tasks_get, scheduled_tasks_toggle, scheduled_tasks_update, task_reload,
 };
 use crate::routes::{
@@ -233,6 +233,7 @@ async fn create_server(
             .service(index)
             .service(health)
             .service(login)
+            .service(keylo_login_compat)
             .service(logout)
             .service(register)
             .service(auth_token_refresh)

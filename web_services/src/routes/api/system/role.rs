@@ -10,9 +10,39 @@ use common::dto::{
 use common::po::ApiResult;
 use common::{RoleQuery, RoleUserQuery};
 use infra::{
-    create_role, delete_roles, get_role, grant_role_to_users, list_role_users, list_roles,
-    revoke_roles_from_users, update_role, update_role_data_scope, update_role_status,
+    SystemRoleBusinessError, create_role, delete_roles, get_role, grant_role_to_users,
+    list_role_users, list_roles, revoke_roles_from_users, update_role, update_role_data_scope,
+    update_role_status,
 };
+
+const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
+const KEYSTONE_ROLE_NAME_NOT_UNIQUE_CODE: i32 = 11001;
+const KEYSTONE_ROLE_KEY_NOT_UNIQUE_CODE: i32 = 11002;
+const KEYSTONE_ROLE_DUPLICATED_DEPT_CODE: i32 = 11003;
+const KEYSTONE_ROLE_ASSIGNED_TO_USER_CODE: i32 = 11004;
+const KEYSTONE_ROLE_NOT_AVAILABLE_CODE: i32 = 11005;
+
+fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
+    ApiResponse {
+        code,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
+}
+
+fn role_business_error_response(error: &SystemRoleBusinessError) -> ApiResponse<()> {
+    let code = match error {
+        SystemRoleBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemRoleBusinessError::NameNotUnique { .. } => KEYSTONE_ROLE_NAME_NOT_UNIQUE_CODE,
+        SystemRoleBusinessError::KeyNotUnique { .. } => KEYSTONE_ROLE_KEY_NOT_UNIQUE_CODE,
+        SystemRoleBusinessError::DuplicatedDept => KEYSTONE_ROLE_DUPLICATED_DEPT_CODE,
+        SystemRoleBusinessError::AlreadyAssignedToUser => KEYSTONE_ROLE_ASSIGNED_TO_USER_CODE,
+        SystemRoleBusinessError::RoleNotAvailable { .. } => KEYSTONE_ROLE_NOT_AVAILABLE_CODE,
+    };
+    business_error_response(code, error.to_string())
+}
 
 fn validate_role_id(role_id: i64) -> Result<(), ApiError> {
     if role_id > 0 {
@@ -187,6 +217,9 @@ async fn role_create(
     match create_role(&data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("新增角色失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -206,6 +239,9 @@ async fn role_update(
     match update_role(&data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("更新角色失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -227,6 +263,9 @@ async fn role_status_update(
     match update_role_status(role_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("更新角色 {role_id} 状态失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -248,6 +287,9 @@ async fn role_data_scope_update(
     match update_role_data_scope(role_id, &data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("更新角色 {role_id} 数据范围失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -266,6 +308,9 @@ async fn role_delete(
     match delete_roles(&role_ids, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("删除角色失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -304,6 +349,9 @@ pub async fn role_users_grant_create(
     match grant_role_to_users(role_id, &user_ids, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemRoleBusinessError>() {
+                return Ok(HttpResponse::Ok().json(role_business_error_response(error)));
+            }
             tracing::error!("批量添加角色 {role_id} 用户关联失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -314,8 +362,15 @@ pub async fn role_users_grant_create(
 mod tests {
     use common::api::ApiError;
     use common::dto::RoleDTO;
+    use infra::SystemRoleBusinessError;
+    use serde_json::json;
 
-    use super::{parse_role_ids, parse_user_ids, role_export_row, validate_role_id};
+    use super::{
+        KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_ROLE_ASSIGNED_TO_USER_CODE,
+        KEYSTONE_ROLE_DUPLICATED_DEPT_CODE, KEYSTONE_ROLE_KEY_NOT_UNIQUE_CODE,
+        KEYSTONE_ROLE_NAME_NOT_UNIQUE_CODE, KEYSTONE_ROLE_NOT_AVAILABLE_CODE, parse_role_ids,
+        parse_user_ids, role_business_error_response, role_export_row, validate_role_id,
+    };
     use chrono::Utc;
 
     #[test]
@@ -343,6 +398,58 @@ mod tests {
         match err {
             ApiError::BadRequest(message) => assert!(message.contains("userIds")),
             _ => panic!("expected bad request"),
+        }
+    }
+
+    #[test]
+    fn role_business_responses_match_keystone_errors() {
+        let cases = [
+            (
+                SystemRoleBusinessError::ObjectNotFound { id: 3 },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 3 的 角色",
+            ),
+            (
+                SystemRoleBusinessError::NameNotUnique {
+                    role_name: "管理员".to_string(),
+                },
+                KEYSTONE_ROLE_NAME_NOT_UNIQUE_CODE,
+                "角色名称：管理员, 已存在",
+            ),
+            (
+                SystemRoleBusinessError::KeyNotUnique {
+                    role_key: "admin".to_string(),
+                },
+                KEYSTONE_ROLE_KEY_NOT_UNIQUE_CODE,
+                "角色标识：admin, 已存在",
+            ),
+            (
+                SystemRoleBusinessError::DuplicatedDept,
+                KEYSTONE_ROLE_DUPLICATED_DEPT_CODE,
+                "重复的部门id",
+            ),
+            (
+                SystemRoleBusinessError::AlreadyAssignedToUser,
+                KEYSTONE_ROLE_ASSIGNED_TO_USER_CODE,
+                "角色已分配给用户，请先取消分配，再删除角色",
+            ),
+            (
+                SystemRoleBusinessError::RoleNotAvailable {
+                    role_name: "审计员".to_string(),
+                },
+                KEYSTONE_ROLE_NOT_AVAILABLE_CODE,
+                "角色：审计员 已禁用，无法分配给用户",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            let value = serde_json::to_value(role_business_error_response(&error))
+                .unwrap_or_else(|_| json!(null));
+            assert_eq!(value["code"], code);
+            assert_eq!(value["msg"], message);
+            assert_eq!(value["message"], message);
+            assert_eq!(value["status"], "error");
+            assert!(value.get("data").is_none());
         }
     }
 

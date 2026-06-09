@@ -5,7 +5,7 @@ use common::dto::{
 use common::po::PageData;
 use common::{RoleQuery, RoleUserQuery};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder, Transaction};
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 const DEFAULT_PAGE: u32 = 1;
 const DEFAULT_PAGE_SIZE: u32 = 20;
@@ -76,6 +76,35 @@ struct NormalizedRole {
     data_scope: i16,
     menu_ids: Vec<i64>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemRoleBusinessError {
+    ObjectNotFound { id: i64 },
+    NameNotUnique { role_name: String },
+    KeyNotUnique { role_key: String },
+    DuplicatedDept,
+    AlreadyAssignedToUser,
+    RoleNotAvailable { role_name: String },
+}
+
+impl fmt::Display for SystemRoleBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id } => write!(f, "找不到ID为 {id} 的 角色"),
+            Self::NameNotUnique { role_name } => write!(f, "角色名称：{role_name}, 已存在"),
+            Self::KeyNotUnique { role_key } => write!(f, "角色标识：{role_key}, 已存在"),
+            Self::DuplicatedDept => f.write_str("重复的部门id"),
+            Self::AlreadyAssignedToUser => {
+                f.write_str("角色已分配给用户，请先取消分配，再删除角色")
+            }
+            Self::RoleNotAvailable { role_name } => {
+                write!(f, "角色：{role_name} 已禁用，无法分配给用户")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SystemRoleBusinessError {}
 
 fn page_bounds(
     page: Option<u32>,
@@ -253,16 +282,16 @@ fn user_dto_with_total(row: RoleUserWithTotal) -> SystemUserDTO {
 }
 
 async fn ensure_role_available(role_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
-    let role: Option<(i16,)> =
-        sqlx::query_as("SELECT status FROM roles WHERE id = $1 AND deleted = FALSE")
+    let role: Option<(i16, String)> =
+        sqlx::query_as("SELECT status, role_name FROM roles WHERE id = $1 AND deleted = FALSE")
             .bind(role_id)
             .fetch_optional(db_pool)
             .await?;
 
     match role {
-        Some((1,)) => Ok(()),
-        Some(_) => Err(anyhow::anyhow!("角色已停用")),
-        None => Err(anyhow::anyhow!("角色不存在")),
+        Some((1, _)) => Ok(()),
+        Some((_, role_name)) => Err(SystemRoleBusinessError::RoleNotAvailable { role_name }.into()),
+        None => Err(SystemRoleBusinessError::ObjectNotFound { id: role_id }.into()),
     }
 }
 
@@ -275,7 +304,7 @@ async fn ensure_role_exists(role_id: i64, db_pool: &PgPool) -> anyhow::Result<()
     if exists {
         Ok(())
     } else {
-        Err(anyhow::anyhow!("角色不存在"))
+        Err(SystemRoleBusinessError::ObjectNotFound { id: role_id }.into())
     }
 }
 
@@ -300,7 +329,10 @@ async fn check_role_name_unique(
     .await?;
 
     if duplicated {
-        Err(anyhow::anyhow!("角色名称：{role_name}, 已存在"))
+        Err(SystemRoleBusinessError::NameNotUnique {
+            role_name: role_name.to_string(),
+        }
+        .into())
     } else {
         Ok(())
     }
@@ -327,7 +359,10 @@ async fn check_role_key_unique(
     .await?;
 
     if duplicated {
-        Err(anyhow::anyhow!("角色标识：{role_key}, 已存在"))
+        Err(SystemRoleBusinessError::KeyNotUnique {
+            role_key: role_key.to_string(),
+        }
+        .into())
     } else {
         Ok(())
     }
@@ -533,8 +568,6 @@ pub async fn list_role_users(
     {
         return Err(anyhow::anyhow!("路径 roleId 与查询参数不一致"));
     }
-    ensure_role_exists(role_id, db_pool).await?;
-
     let (page, page_size, offset) = page_bounds(query.page, query.page_num, query.page_size);
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(role_user_select_sql());
 
@@ -653,6 +686,8 @@ pub async fn create_role(data: &CreateRoleDTO, db_pool: &PgPool) -> anyhow::Resu
 }
 
 pub async fn update_role(data: &UpdateRoleDTO, db_pool: &PgPool) -> anyhow::Result<()> {
+    ensure_role_exists(data.role_id, db_pool).await?;
+
     let role = normalize_role(
         &data.role_name,
         &data.role_key,
@@ -663,17 +698,8 @@ pub async fn update_role(data: &UpdateRoleDTO, db_pool: &PgPool) -> anyhow::Resu
         &data.menu_ids,
     )?;
 
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1 AND deleted = FALSE)")
-            .bind(data.role_id)
-            .fetch_one(db_pool)
-            .await?;
-    if !exists {
-        return Err(anyhow::anyhow!("角色不存在"));
-    }
-
-    check_role_name_unique(Some(data.role_id), &role.role_name, db_pool).await?;
     check_role_key_unique(Some(data.role_id), &role.role_key, db_pool).await?;
+    check_role_name_unique(Some(data.role_id), &role.role_name, db_pool).await?;
 
     let mut tx = db_pool.begin().await?;
     sqlx::query(
@@ -781,6 +807,7 @@ pub async fn update_role_status(
     if !matches!(data.status, 0 | 1) {
         return Err(anyhow::anyhow!("角色状态必须是 0 或 1"));
     }
+    ensure_role_exists(role_id, db_pool).await?;
 
     let rows_affected =
         sqlx::query("UPDATE roles SET status = $2 WHERE id = $1 AND deleted = FALSE")
@@ -791,7 +818,7 @@ pub async fn update_role_status(
             .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("角色不存在"));
+        return Err(SystemRoleBusinessError::ObjectNotFound { id: role_id }.into());
     }
 
     Ok(())
@@ -804,6 +831,7 @@ pub async fn update_role_data_scope(
 ) -> anyhow::Result<()> {
     let data_scope = data.data_scope.unwrap_or(1);
     validate_data_scope_value(data_scope)?;
+    ensure_role_exists(role_id, db_pool).await?;
 
     let mut seen = HashSet::new();
     for dept_id in &data.dept_ids {
@@ -811,7 +839,7 @@ pub async fn update_role_data_scope(
             return Err(anyhow::anyhow!("deptIds 必须为正整数"));
         }
         if !seen.insert(*dept_id) {
-            return Err(anyhow::anyhow!("重复的部门id"));
+            return Err(SystemRoleBusinessError::DuplicatedDept.into());
         }
     }
     let dept_id_set = data
@@ -832,7 +860,7 @@ pub async fn update_role_data_scope(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(anyhow::anyhow!("角色不存在"));
+        return Err(SystemRoleBusinessError::ObjectNotFound { id: role_id }.into());
     }
 
     Ok(())
@@ -846,15 +874,17 @@ pub async fn delete_roles(role_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<
         return Err(anyhow::anyhow!("roleIds 必须为正整数"));
     }
 
-    let assigned_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM user_roles WHERE role_id = ANY($1)")
-            .bind(role_ids)
-            .fetch_one(db_pool)
-            .await?;
-    if assigned_count > 0 {
-        return Err(anyhow::anyhow!(
-            "角色已分配给用户，请先取消分配，再删除角色"
-        ));
+    for role_id in role_ids {
+        ensure_role_exists(*role_id, db_pool).await?;
+
+        let assigned: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM user_roles WHERE role_id = $1)")
+                .bind(role_id)
+                .fetch_one(db_pool)
+                .await?;
+        if assigned {
+            return Err(SystemRoleBusinessError::AlreadyAssignedToUser.into());
+        }
     }
 
     let mut tx = db_pool.begin().await?;
@@ -879,7 +909,10 @@ pub async fn delete_roles(role_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_role, page_bounds, parse_data_scope, parse_dept_ids, parse_status};
+    use super::{
+        SystemRoleBusinessError, normalize_role, page_bounds, parse_data_scope, parse_dept_ids,
+        parse_status,
+    };
 
     #[test]
     fn parse_status_accepts_keystone_values() {
@@ -905,6 +938,43 @@ mod tests {
     fn normalize_role_rejects_invalid_sort_or_menu_ids() {
         assert!(normalize_role("管理员", "admin", -1, None, Some("1"), Some("1"), &[]).is_err());
         assert!(normalize_role("管理员", "admin", 1, None, Some("1"), Some("1"), &[0]).is_err());
+    }
+
+    #[test]
+    fn role_business_errors_match_keystone_messages() {
+        let cases = [
+            (
+                SystemRoleBusinessError::ObjectNotFound { id: 3 },
+                "找不到ID为 3 的 角色",
+            ),
+            (
+                SystemRoleBusinessError::NameNotUnique {
+                    role_name: "管理员".to_string(),
+                },
+                "角色名称：管理员, 已存在",
+            ),
+            (
+                SystemRoleBusinessError::KeyNotUnique {
+                    role_key: "admin".to_string(),
+                },
+                "角色标识：admin, 已存在",
+            ),
+            (SystemRoleBusinessError::DuplicatedDept, "重复的部门id"),
+            (
+                SystemRoleBusinessError::AlreadyAssignedToUser,
+                "角色已分配给用户，请先取消分配，再删除角色",
+            ),
+            (
+                SystemRoleBusinessError::RoleNotAvailable {
+                    role_name: "审计员".to_string(),
+                },
+                "角色：审计员 已禁用，无法分配给用户",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

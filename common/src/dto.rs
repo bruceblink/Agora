@@ -311,6 +311,52 @@ pub struct SystemConfigDTO {
     pub create_time: chrono::DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemConfigDetailDTO {
+    pub config_id: Option<String>,
+    pub config_name: Option<String>,
+    pub config_key: Option<String>,
+    pub config_value: Option<String>,
+    pub config_options: Option<Vec<String>>,
+    pub is_allow_change: Option<i16>,
+    pub is_allow_change_str: Option<String>,
+    pub remark: Option<String>,
+    pub create_time: Option<chrono::DateTime<Utc>>,
+}
+
+impl SystemConfigDetailDTO {
+    pub fn empty() -> Self {
+        Self {
+            config_id: None,
+            config_name: None,
+            config_key: None,
+            config_value: None,
+            config_options: None,
+            is_allow_change: None,
+            is_allow_change_str: None,
+            remark: None,
+            create_time: None,
+        }
+    }
+}
+
+impl From<SystemConfigDTO> for SystemConfigDetailDTO {
+    fn from(value: SystemConfigDTO) -> Self {
+        Self {
+            config_id: Some(value.config_id),
+            config_name: Some(value.config_name),
+            config_key: Some(value.config_key),
+            config_value: Some(value.config_value),
+            config_options: Some(value.config_options),
+            is_allow_change: Some(value.is_allow_change),
+            is_allow_change_str: Some(value.is_allow_change_str),
+            remark: value.remark,
+            create_time: Some(value.create_time),
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSystemConfigDTO {

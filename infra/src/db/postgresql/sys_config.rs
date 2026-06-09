@@ -1,5 +1,5 @@
 use common::SystemConfigQuery;
-use common::dto::{SystemConfigDTO, UpdateSystemConfigDTO};
+use common::dto::{SystemConfigDTO, SystemConfigDetailDTO, UpdateSystemConfigDTO};
 use common::po::PageData;
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
@@ -51,6 +51,19 @@ impl fmt::Display for SystemConfigValidationError {
 }
 
 impl std::error::Error for SystemConfigValidationError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemConfigNotFoundError {
+    pub config_id: i64,
+}
+
+impl fmt::Display for SystemConfigNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "找不到ID为 {} 的 参数配置", self.config_id)
+    }
+}
+
+impl std::error::Error for SystemConfigNotFoundError {}
 
 fn page_bounds(page: Option<u32>, page_size: Option<u32>) -> (u32, u32, i64) {
     let page = page.unwrap_or(DEFAULT_PAGE).max(1);
@@ -190,7 +203,7 @@ pub async fn list_system_configs(
 pub async fn get_system_config(
     config_id: i64,
     db_pool: &PgPool,
-) -> anyhow::Result<SystemConfigDTO> {
+) -> anyhow::Result<Option<SystemConfigDetailDTO>> {
     let row = sqlx::query_as::<_, SystemConfigRow>(
         r#"
         SELECT config_id, config_name, config_key, config_options, config_value,
@@ -201,10 +214,9 @@ pub async fn get_system_config(
     )
     .bind(config_id)
     .fetch_optional(db_pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("参数配置不存在"))?;
+    .await?;
 
-    Ok(to_dto(row))
+    Ok(row.map(to_dto).map(SystemConfigDetailDTO::from))
 }
 
 pub async fn update_system_config(
@@ -223,7 +235,7 @@ pub async fn update_system_config(
     .bind(config_id)
     .fetch_optional(db_pool)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("参数配置不存在"))?;
+    .ok_or(SystemConfigNotFoundError { config_id })?;
 
     let config_options = parse_config_options(&row.config_options);
     validate_config_value(&data.config_value, &config_options)?;

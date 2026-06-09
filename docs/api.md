@@ -822,6 +822,8 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 **需要认证，仅管理员**
 
+配置不存在时，与 Keystone 一致仍返回 `200 OK` 成功响应，`data` 为字段值均为空的 `ConfigDTO`。
+
 ---
 
 ### PUT `/api/system/config/{configId}`
@@ -848,6 +850,8 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 ```
 
 候选项不匹配时 `code` 为 `10602`，`msg/message` 为 `参数键值不存在列表中`。
+
+配置不存在时返回 `200 OK` 业务失败响应，`code=10001`，`msg/message` 形如 `找不到ID为 42 的 参数配置`。
 
 ---
 

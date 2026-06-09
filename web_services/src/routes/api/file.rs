@@ -138,6 +138,13 @@ fn upload_failed_msg(reason: impl AsRef<str>) -> String {
     format!("{KEYSTONE_UPLOAD_FILE_FAILED_PREFIX}{}", reason.as_ref())
 }
 
+fn upload_size_exceeded_msg() -> String {
+    upload_failed_msg(format!(
+        "文件名大小超过：{} MB",
+        MAX_FILE_SIZE / 1024 / 1024
+    ))
+}
+
 fn generated_filename(original_filename: &str, extension: &str) -> String {
     let base_name = Path::new(original_filename)
         .file_stem()
@@ -185,7 +192,7 @@ async fn save_upload_field(
         total_bytes += chunk.len();
         if total_bytes > MAX_FILE_SIZE {
             let _ = tokio::fs::remove_file(&file_path).await;
-            return Err(ApiError::BadRequest("上传文件大小不能超过 50MB".into()));
+            return Err(ApiError::BadRequest(upload_size_exceeded_msg()));
         }
         file.write_all(&chunk).await.map_err(|e| {
             tracing::error!("写入上传文件失败 path={file_path:?}: {e}");
@@ -300,7 +307,7 @@ mod tests {
         KEYSTONE_UPLOAD_FILE_EMPTY_MSG, KEYSTONE_UPLOAD_FILE_FAILED_CODE, MAX_FILE_NAME_LENGTH,
         MAX_FILE_SIZE, file_download, file_extension, file_upload, file_uploads,
         generated_filename, is_allowed_extension, sanitize_filename, upload_failed_msg,
-        upload_file_empty_response, validate_download_filename,
+        upload_file_empty_response, upload_size_exceeded_msg, validate_download_filename,
     };
     use actix_web::{
         App,
@@ -378,6 +385,14 @@ mod tests {
         assert_eq!(
             upload_failed_msg("文件名长度超过：127 "),
             "上传文件失败：文件名长度超过：127 "
+        );
+    }
+
+    #[test]
+    fn upload_size_exceeded_message_matches_keystone_wrapped_error() {
+        assert_eq!(
+            upload_size_exceeded_msg(),
+            "上传文件失败：文件名大小超过：50 MB"
         );
     }
 

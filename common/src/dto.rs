@@ -233,6 +233,20 @@ pub struct ConfigDTO {
     pub dictionary: BTreeMap<String, Vec<DictionaryDataDTO>>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptchaDTO {
+    pub is_captcha_on: bool,
+    pub captcha_code_key: String,
+    pub captcha_code_img: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RsaPublicKeyDTO {
+    pub public_key: String,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDictTypeDTO {
@@ -606,6 +620,44 @@ pub struct UserProfileDTO {
     pub user: SystemUserDTO,
     pub role_name: Option<String>,
     pub post_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentLoginUserDTO {
+    pub user_info: SystemUserDTO,
+    pub role_key: String,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenDTO {
+    pub token: String,
+    pub refresh_token: Option<String>,
+    pub expires_in: i64,
+    pub refresh_expires_in: Option<i64>,
+    pub current_user: Option<CurrentLoginUserDTO>,
+    pub keylo_access_token: Option<String>,
+    pub keylo_refresh_token: Option<String>,
+    pub keylo_expires_in: Option<i64>,
+    pub keylo_token_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterDTO {
+    pub name: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<i32>,
+    pub meta: MenuMetaDTO,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<RouterDTO>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

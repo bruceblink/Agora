@@ -1,4 +1,5 @@
 use common::MenuQuery;
+use common::dto::RouterDTO;
 use common::dto::{
     CreateMenuDTO, MenuDTO, MenuDetailDTO, MenuDropdownDTO, MenuMetaDTO, UpdateMenuDTO,
 };
@@ -311,6 +312,39 @@ fn build_dropdown_tree(nodes: &[MenuTreeNode], parent_id: i64) -> Vec<MenuDropdo
         .collect()
 }
 
+fn router_dto(row: MenuRow, children: Vec<RouterDTO>) -> RouterDTO {
+    let mut meta = meta_from_value(row.meta_info);
+    if !row.permission.is_empty() {
+        meta.auths = Some(vec![row.permission]);
+    }
+
+    RouterDTO {
+        name: row.router_name,
+        path: row.path,
+        redirect: None,
+        component: None,
+        rank: meta.rank,
+        meta,
+        children,
+    }
+}
+
+fn build_router_tree(rows: &[MenuRow], parent_id: i64) -> Vec<RouterDTO> {
+    let mut children: Vec<&MenuRow> = rows
+        .iter()
+        .filter(|row| row.parent_id == parent_id && !row.is_button)
+        .collect();
+    children.sort_by(|left, right| compare_menu_rows(left, right));
+
+    children
+        .into_iter()
+        .map(|row| {
+            let child_routes = build_router_tree(rows, row.menu_id);
+            router_dto(row.clone(), child_routes)
+        })
+        .collect()
+}
+
 pub async fn list_menus(query: &MenuQuery, db_pool: &PgPool) -> anyhow::Result<Vec<MenuDTO>> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         r#"
@@ -376,6 +410,34 @@ pub async fn list_menu_dropdown(db_pool: &PgPool) -> anyhow::Result<Vec<MenuDrop
     nodes.sort_by(compare_tree_nodes);
 
     Ok(build_dropdown_tree(&nodes, 0))
+}
+
+pub async fn list_user_router_tree(
+    user_id: i64,
+    db_pool: &PgPool,
+) -> anyhow::Result<Vec<RouterDTO>> {
+    let mut rows: Vec<MenuRow> = sqlx::query_as(
+        r#"
+        SELECT DISTINCT m.menu_id, m.menu_name, m.menu_type, m.router_name, m.parent_id,
+               m.path, m.is_button, m.permission, m.meta_info, m.status,
+               m.created_at AS create_time
+        FROM sys_menu m
+        JOIN sys_role_menu rm ON rm.menu_id = m.menu_id
+        JOIN user_roles ur ON ur.role_id = rm.role_id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = $1
+          AND m.status = 1
+          AND m.deleted = FALSE
+          AND r.status = 1
+          AND r.deleted = FALSE
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(db_pool)
+    .await?;
+
+    rows.sort_by(compare_menu_rows);
+    Ok(build_router_tree(&rows, 0))
 }
 
 pub async fn create_menu(data: &CreateMenuDTO, db_pool: &PgPool) -> anyhow::Result<()> {
@@ -547,7 +609,8 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_menu, validate_menu_type, validate_status};
+    use super::{MenuRow, build_router_tree, normalize_menu, validate_menu_type, validate_status};
+    use chrono::Utc;
 
     #[test]
     fn validate_status_accepts_keystone_flags() {
@@ -579,6 +642,62 @@ mod tests {
             None,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_router_tree_ignores_buttons_and_maps_permission_to_auths() {
+        let rows = vec![
+            MenuRow {
+                menu_id: 1,
+                menu_name: "系统管理".to_string(),
+                menu_type: 2,
+                router_name: "System".to_string(),
+                parent_id: 0,
+                path: "/system".to_string(),
+                is_button: false,
+                permission: String::new(),
+                meta_info: serde_json::json!({"title": "系统管理", "rank": 1}),
+                status: 1,
+                create_time: Utc::now(),
+            },
+            MenuRow {
+                menu_id: 2,
+                menu_name: "用户管理".to_string(),
+                menu_type: 1,
+                router_name: "SystemUser".to_string(),
+                parent_id: 1,
+                path: "/system/user/index".to_string(),
+                is_button: false,
+                permission: "system:user:list".to_string(),
+                meta_info: serde_json::json!({"title": "用户管理"}),
+                status: 1,
+                create_time: Utc::now(),
+            },
+            MenuRow {
+                menu_id: 3,
+                menu_name: "用户新增".to_string(),
+                menu_type: 0,
+                router_name: String::new(),
+                parent_id: 2,
+                path: String::new(),
+                is_button: true,
+                permission: "system:user:add".to_string(),
+                meta_info: serde_json::json!({"title": "用户新增"}),
+                status: 1,
+                create_time: Utc::now(),
+            },
+        ];
+
+        let routers = build_router_tree(&rows, 0);
+
+        assert_eq!(routers.len(), 1);
+        assert_eq!(routers[0].children.len(), 1);
+        assert_eq!(routers[0].children[0].name, "SystemUser");
+        assert_eq!(
+            routers[0].children[0].meta.auths,
+            Some(vec!["system:user:list".to_string()])
+        );
+        assert!(routers[0].children[0].children.is_empty());
     }
 
     #[test]

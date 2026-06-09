@@ -6,6 +6,10 @@ use crate::routes::{
 };
 use crate::routes::{auth_github_callback, auth_github_login, auth_token_refresh};
 use crate::routes::{
+    captcha_image, get_login_user_info, get_routers, login_rsa_public_key, logout_refresh_token,
+    refresh_token_compat,
+};
+use crate::routes::{
     dept_create, dept_delete, dept_get, dept_update, depts_dropdown, depts_list, post_create,
     post_get, post_update, posts_delete, posts_export, posts_list, user_create, user_get,
     user_password_update, user_status_update, user_update, users_delete, users_excel_template,
@@ -140,7 +144,13 @@ async fn create_server(
             .service(logout)
             .service(register)
             .service(auth_token_refresh)
+            .service(refresh_token_compat)
+            .service(logout_refresh_token)
             .service(get_config_public)
+            .service(captcha_image)
+            .service(login_rsa_public_key)
+            .service(get_login_user_info)
+            .service(get_routers)
             .service(Files::new("/uploads", "./uploads").prefer_utf8(true))
             // SSE 公开接口（无需认证，供落地页实时新闻使用）
             // 需要认证的 API 路由

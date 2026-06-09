@@ -6,6 +6,8 @@ use thiserror::Error;
 
 #[derive(Serialize, Debug, Clone)]
 pub struct ApiResponse<T = Value> {
+    pub code: i32,
+    pub msg: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -16,6 +18,8 @@ pub struct ApiResponse<T = Value> {
 impl<T> ApiResponse<T> {
     pub fn ok(data: T) -> Self {
         Self {
+            code: 0,
+            msg: "操作成功".into(),
             status: "ok".into(),
             message: None,
             data: Some(data),
@@ -23,9 +27,12 @@ impl<T> ApiResponse<T> {
     }
 
     pub fn err<E: ToString>(msg: E) -> Self {
+        let msg = msg.to_string();
         Self {
+            code: 1,
+            msg: msg.clone(),
             status: "error".into(),
-            message: Some(msg.to_string()),
+            message: Some(msg),
             data: None,
         }
     }
@@ -122,4 +129,36 @@ pub struct NewsInfo2Item {
     pub url: String,
     pub content: Option<String>,
     pub extra: Value, // 不关心内部结构，直接用 Value 保存
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApiResponse;
+    use serde_json::json;
+
+    #[test]
+    fn ok_response_keeps_keystone_and_legacy_fields() {
+        let response = ApiResponse::ok(json!({"value": 1}));
+        let value = serde_json::to_value(response);
+        assert!(value.is_ok());
+        let value = value.unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], 0);
+        assert_eq!(value["msg"], "操作成功");
+        assert_eq!(value["status"], "ok");
+        assert_eq!(value["data"]["value"], 1);
+    }
+
+    #[test]
+    fn err_response_keeps_keystone_and_legacy_fields() {
+        let response = ApiResponse::<()>::err("失败");
+        let value = serde_json::to_value(response);
+        assert!(value.is_ok());
+        let value = value.unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], 1);
+        assert_eq!(value["msg"], "失败");
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["message"], "失败");
+    }
 }

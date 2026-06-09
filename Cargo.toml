@@ -52,6 +52,7 @@ chrono-tz = "0.10"
 once_cell = "1.21"
 thiserror = "2"
 rand = { version = "0.9", features = ["std"] }
+rsa = { version = "0.9.10", features = ["pem"] }
 oauth2 = { version = "4", features = ["reqwest"] }
 jsonwebtoken = "9.3"
 regex = "1.11.1"

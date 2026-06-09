@@ -10,6 +10,13 @@
 
 - [响应结构](#响应结构)
 - [认证 / 鉴权](#认证--鉴权)
+  - [登录](#post-login)
+  - [验证码](#get-captchaimage)
+  - [登录 RSA 公钥](#get-loginrsa-public-key)
+  - [刷新 Keystone Token](#post-refresh-token)
+  - [通过 Refresh Token 登出](#post-logout-refresh-token)
+  - [当前登录用户](#get-getloginuserinfo)
+  - [动态路由](#get-getrouters)
   - [注册](#post-register)
   - [登出](#post-logout)
   - [刷新 Token](#post-authtokenrefresh)
@@ -123,6 +130,8 @@
 
 ```json
 {
+  "code": 0,
+  "msg": "操作成功",
   "status": "ok",
   "data": { }
 }
@@ -132,10 +141,14 @@
 
 ```json
 {
+  "code": 1,
+  "msg": "错误描述",
   "status": "error",
   "message": "错误描述"
 }
 ```
+
+`code` / `msg` 用于兼容 Keystone / AgileBoot 前端；`status` / `message` 保留给既有 Agora 客户端。
 
 ### 分页数据结构 `PageData<T>`
 
@@ -172,6 +185,146 @@
 ---
 
 ## 认证 / 鉴权
+
+### POST `/login`
+
+本地账号登录。兼容 AgileBoot：密码可为 `/login/rsa-public-key` 返回公钥加密后的 RSA 密文，也兼容明文密码。
+
+**无需认证**
+
+开发种子账号：`admin/admin123`、`editor/editor123`、`user/user1234`。
+
+**请求体** `application/json`
+
+```json
+{
+  "username": "admin",
+  "password": "rsa-or-plain-password",
+  "captchaCode": "",
+  "captchaCodeKey": "",
+  "forceLogin": false
+}
+```
+
+**响应** `200 OK`，同时写入 `access_token` / `refresh_token` Cookie。
+
+```json
+{
+  "code": 0,
+  "msg": "操作成功",
+  "status": "ok",
+  "data": {
+    "token": "jwt",
+    "refreshToken": "refresh-token",
+    "expiresIn": 7200,
+    "refreshExpiresIn": 2592000,
+    "currentUser": {
+      "roleKey": "admin",
+      "permissions": ["system:user:list"],
+      "userInfo": {
+        "userId": 1,
+        "username": "admin"
+      }
+    }
+  }
+}
+```
+
+---
+
+### GET `/captchaImage`
+
+返回登录验证码信息。当前 Agora 默认关闭验证码，保留该接口用于前端启动兼容。
+
+**无需认证**
+
+```json
+{
+  "code": 0,
+  "msg": "操作成功",
+  "data": {
+    "isCaptchaOn": false,
+    "captchaCodeKey": "",
+    "captchaCodeImg": ""
+  }
+}
+```
+
+---
+
+### GET `/login/rsa-public-key`
+
+获取登录 RSA 公钥。返回值为 X.509 SubjectPublicKeyInfo DER 的 base64 字符串，供前端 `JSEncrypt` 加密密码。
+
+**无需认证**
+
+```json
+{
+  "code": 0,
+  "msg": "操作成功",
+  "data": {
+    "publicKey": "MIIBIjANBgkq..."
+  }
+}
+```
+
+---
+
+### POST `/refresh-token`
+
+使用请求体或 Cookie 中的 refresh token 换取新的 Keystone 兼容 token 响应。
+
+**无需认证**
+
+```json
+{
+  "refreshToken": "refresh-token"
+}
+```
+
+**响应** `200 OK`，`data` 为 `TokenDTO`。刷新响应不包含 `currentUser`，前端会复用已缓存用户信息。
+
+---
+
+### POST `/logout-refresh-token`
+
+在 access token 已失效时，通过 refresh token 主动释放后端会话。
+
+**无需认证**
+
+```json
+{
+  "refreshToken": "refresh-token"
+}
+```
+
+**响应** `200 OK`
+
+---
+
+### GET `/getLoginUserInfo`
+
+获取当前登录用户信息。
+
+**需要认证**
+
+**请求头** `Authorization: Bearer <token>`
+
+**响应** `200 OK`，`data` 为 `CurrentLoginUserDTO`。
+
+---
+
+### GET `/getRouters`
+
+获取当前用户可访问的动态路由树。按钮权限不会作为路由节点返回，会写入对应页面的 `meta.auths`。
+
+**需要认证**
+
+**请求头** `Authorization: Bearer <token>`
+
+**响应** `200 OK`，`data` 为 `RouterDTO[]`。
+
+---
 
 ### POST `/register`
 

@@ -1,9 +1,12 @@
 use crate::common::{AppState, ExtractToken};
+use crate::routes::{build_token_dto, user_role_keys};
 use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 use chrono::Utc;
 use common::api::{ApiError, ApiResponse};
-use common::utils::{CommonUser, generate_jwt, generate_refresh_token, verify_jwt};
+use common::utils::{
+    CommonUser, decrypt_login_password_or_plain, generate_jwt, generate_refresh_token, verify_jwt,
+};
 use common::{ACCESS_TOKEN, REFRESH_TOKEN};
 use infra::{
     browser_from_user_agent, build_login_log, build_session_login_info,
@@ -86,6 +89,12 @@ pub struct LoginRequest {
     pub username: Option<String>,
     pub email: Option<String>,
     pub password: String,
+    #[serde(default)]
+    pub captcha_code: Option<String>,
+    #[serde(default)]
+    pub captcha_code_key: Option<String>,
+    #[serde(default)]
+    pub force_login: Option<bool>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -106,7 +115,8 @@ async fn login(
     body: web::Json<LoginRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = body.into_inner();
-    if req.password.len() < 8 {
+    let password = decrypt_login_password_or_plain(&req.password);
+    if password.len() < 8 {
         record_login_attempt(
             &app_state,
             &http_req,
@@ -173,7 +183,7 @@ async fn login(
         return Err(ApiError::Forbidden("账号不可用".into()));
     }
 
-    let verify_ok = bcrypt::verify(&req.password, &user.password).map_err(|e| {
+    let verify_ok = bcrypt::verify(&password, &user.password).map_err(|e| {
         tracing::error!("校验密码失败: {e}");
         ApiError::Internal("服务器内部错误".into())
     })?;
@@ -190,21 +200,7 @@ async fn login(
         return Err(ApiError::Unauthorized("用户名/邮箱或密码错误".into()));
     }
 
-    let roles: Vec<String> = sqlx::query_scalar(
-        r#"
-            SELECT r.name
-            FROM roles r
-            JOIN user_roles ur ON ur.role_id = r.id
-            WHERE ur.user_id = $1
-        "#,
-    )
-    .bind(user.id)
-    .fetch_all(&app_state.db_pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("查询用户角色失败: {e}");
-        ApiError::Internal("服务器内部错误".into())
-    })?;
+    let roles = user_role_keys(user.id, &app_state).await?;
 
     let access_token_mins = token_window_days(&app_state, ACCESS_TOKEN)?;
     let refresh_token_days = token_window_days(&app_state, REFRESH_TOKEN)?;
@@ -268,20 +264,27 @@ async fn login(
         .path("/")
         .finish();
 
-    let refresh_cookie = Cookie::build(REFRESH_TOKEN, refresh_token.token)
+    let refresh_cookie = Cookie::build(REFRESH_TOKEN, refresh_token.token.clone())
         .http_only(true)
         .secure(is_prod)
         .same_site(SameSite::None)
         .path("/")
         .finish();
 
+    let token_dto = build_token_dto(
+        access_token.token.clone(),
+        access_token.expires_at,
+        Some(refresh_token.token),
+        Some(refresh_token.expires_at),
+        Some(user.id),
+        &app_state,
+    )
+    .await?;
+
     Ok(HttpResponse::Ok()
         .cookie(access_cookie)
         .cookie(refresh_cookie)
-        .json(ApiResponse::ok(serde_json::json!({
-            "access_token_exp": access_token.expires_at.timestamp(),
-            "user": common_user
-        }))))
+        .json(ApiResponse::ok(token_dto)))
 }
 
 #[post("/logout")]
@@ -324,8 +327,8 @@ async fn logout(app_state: web::Data<AppState>, req: HttpRequest) -> impl Respon
 
     record_login_attempt(&app_state, &req, &username, 2, "退出成功").await;
 
-    HttpResponse::NoContent()
+    HttpResponse::Ok()
         .cookie(access_cookie)
         .cookie(refresh_cookie)
-        .finish()
+        .json(ApiResponse::<()>::ok(()))
 }

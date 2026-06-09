@@ -1,9 +1,11 @@
 pub mod date_utils;
 pub mod http_client;
 mod jwt;
+mod rsa_crypto;
 pub use jwt::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
+pub use rsa_crypto::*;
 
 #[allow(clippy::expect_used)]
 static DIGIT_RE: Lazy<Regex> =

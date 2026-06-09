@@ -1,12 +1,12 @@
 use crate::common::AppState;
 use actix_web::{HttpRequest, HttpResponse, delete, get, post, put, web};
-use common::RoleQuery;
 use common::api::{ApiError, ApiResponse};
 use common::dto::{CreateRoleDTO, UpdateRoleDTO, UpdateRoleDataScopeDTO, UpdateRoleStatusDTO};
 use common::po::ApiResult;
+use common::{RoleQuery, RoleUserQuery};
 use infra::{
-    create_role, delete_roles, get_role, list_roles, update_role, update_role_data_scope,
-    update_role_status,
+    create_role, delete_roles, get_role, grant_role_to_users, list_role_users, list_roles,
+    revoke_roles_from_users, update_role, update_role_data_scope, update_role_status,
 };
 
 fn validate_role_id(role_id: i64) -> Result<(), ApiError> {
@@ -17,7 +17,7 @@ fn validate_role_id(role_id: i64) -> Result<(), ApiError> {
     }
 }
 
-fn parse_role_ids(value: &str) -> Result<Vec<i64>, ApiError> {
+fn parse_positive_ids(value: &str, field_name: &str) -> Result<Vec<i64>, ApiError> {
     let ids: Result<Vec<_>, _> = value
         .split(',')
         .map(str::trim)
@@ -25,14 +25,22 @@ fn parse_role_ids(value: &str) -> Result<Vec<i64>, ApiError> {
         .map(str::parse::<i64>)
         .collect();
 
-    let ids = ids.map_err(|_| ApiError::BadRequest("roleId 必须为数字".into()))?;
+    let ids = ids.map_err(|_| ApiError::BadRequest(format!("{field_name} 必须为数字")))?;
     if ids.is_empty() {
-        return Err(ApiError::BadRequest("roleIds 不能为空".into()));
+        return Err(ApiError::BadRequest(format!("{field_name} 不能为空")));
     }
     if ids.iter().any(|id| *id <= 0) {
-        return Err(ApiError::BadRequest("roleIds 必须为正整数".into()));
+        return Err(ApiError::BadRequest(format!("{field_name} 必须为正整数")));
     }
     Ok(ids)
+}
+
+fn parse_role_ids(value: &str) -> Result<Vec<i64>, ApiError> {
+    parse_positive_ids(value, "roleIds")
+}
+
+fn parse_user_ids(value: &str) -> Result<Vec<i64>, ApiError> {
+    parse_positive_ids(value, "userIds")
 }
 
 #[get("/system/role/list")]
@@ -47,6 +55,46 @@ async fn roles_list(
         Err(e) => {
             tracing::error!("查询角色列表失败: {e:?}");
             Err(ApiError::Database("查询角色列表失败".into()))
+        }
+    }
+}
+
+#[get("/system/role/{role_id}/allocated/list")]
+pub async fn role_allocated_users_list(
+    req: HttpRequest,
+    path: web::Path<i64>,
+    query: web::Query<RoleUserQuery>,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
+    crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
+    let role_id = path.into_inner();
+    validate_role_id(role_id)?;
+
+    match list_role_users(role_id, &query.into_inner(), true, &app_state.db_pool).await {
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Err(e) => {
+            tracing::error!("查询角色 {role_id} 已分配用户失败: {e:?}");
+            Err(ApiError::BadRequest(e.to_string()))
+        }
+    }
+}
+
+#[get("/system/role/{role_id}/unallocated/list")]
+pub async fn role_unallocated_users_list(
+    req: HttpRequest,
+    path: web::Path<i64>,
+    query: web::Query<RoleUserQuery>,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
+    crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
+    let role_id = path.into_inner();
+    validate_role_id(role_id)?;
+
+    match list_role_users(role_id, &query.into_inner(), false, &app_state.db_pool).await {
+        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Err(e) => {
+            tracing::error!("查询角色 {role_id} 未分配用户失败: {e:?}");
+            Err(ApiError::BadRequest(e.to_string()))
         }
     }
 }
@@ -183,9 +231,49 @@ async fn role_delete(
     }
 }
 
+#[delete("/system/role/users/{user_ids}/grant/bulk")]
+pub async fn role_users_grant_delete(
+    req: HttpRequest,
+    path: web::Path<String>,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
+    crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
+    let user_ids = parse_user_ids(&path.into_inner())?;
+
+    match revoke_roles_from_users(&user_ids, &app_state.db_pool).await {
+        Ok(_) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
+        Err(e) => {
+            tracing::error!("批量解除角色用户关联失败: {e:?}");
+            Err(ApiError::BadRequest(e.to_string()))
+        }
+    }
+}
+
+#[post("/system/role/{role_id}/users/{user_ids}/grant/bulk")]
+pub async fn role_users_grant_create(
+    req: HttpRequest,
+    path: web::Path<(i64, String)>,
+    app_state: web::Data<AppState>,
+) -> ApiResult {
+    crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
+    let (role_id, user_ids) = path.into_inner();
+    validate_role_id(role_id)?;
+    let user_ids = parse_user_ids(&user_ids)?;
+
+    match grant_role_to_users(role_id, &user_ids, &app_state.db_pool).await {
+        Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
+        Err(e) => {
+            tracing::error!("批量添加角色 {role_id} 用户关联失败: {e:?}");
+            Err(ApiError::BadRequest(e.to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_role_ids, validate_role_id};
+    use common::api::ApiError;
+
+    use super::{parse_role_ids, parse_user_ids, validate_role_id};
 
     #[test]
     fn validate_role_id_rejects_non_positive_ids() {
@@ -204,5 +292,14 @@ mod tests {
         assert!(parse_role_ids("").is_err());
         assert!(parse_role_ids("1,x").is_err());
         assert!(parse_role_ids("0").is_err());
+    }
+
+    #[test]
+    fn parse_user_ids_uses_user_field_name() {
+        let err = parse_user_ids("x").unwrap_err();
+        match err {
+            ApiError::BadRequest(message) => assert!(message.contains("userIds")),
+            _ => panic!("expected bad request"),
+        }
     }
 }

@@ -1321,6 +1321,7 @@ pub async fn get_user_detail(
             role_key: None,
             status: None,
             page: Some(1),
+            page_num: None,
             page_size: Some(MAX_PAGE_SIZE),
         },
         db_pool,

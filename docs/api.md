@@ -44,6 +44,10 @@
   - [更新角色状态](#put-apisystemroleroleidstatus)
   - [更新角色数据范围](#put-apisystemroleroleiddatascope)
   - [删除角色](#delete-apisystemroleroleids)
+  - [已分配角色用户](#get-apisystemroleroleidallocatedlist)
+  - [未分配角色用户](#get-apisystemroleroleidunallocatedlist)
+  - [批量授权角色用户](#post-apisystemroleroleidusersuseridsgrantbulk)
+  - [批量取消角色授权](#delete-apisystemroleusersuseridsgrantbulk)
   - [查询部门列表](#get-apisystemdepts)
   - [部门下拉树](#get-apisystemdeptsdropdown)
   - [部门详情](#get-apisystemdeptdeptid)
@@ -457,7 +461,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 | 参数 | 类型 | 说明 | 默认值 |
 | --- | --- | --- | --- |
-| `page` | number | 页码，从 1 开始 | 1 |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
 | `pageSize` | number | 每页条数 | 20 |
 | `configName` | string | 配置名称，模糊匹配 | — |
 | `configKey` | string | 配置键名，精确匹配 | — |
@@ -765,7 +769,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### GET `/api/system/role/{roleId}`
 
-角色详情，包含 `selectedMenuList` 和兼容字段 `selectedDeptList`。当前产品范围不引入部门模型，`selectedDeptList` 仅回显持久化的数据范围 ID。
+角色详情，包含 `selectedMenuList` 和 `selectedDeptList`。
 
 **需要认证，仅管理员**
 
@@ -828,7 +832,7 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 
 ### PUT `/api/system/role/{roleId}/dataScope`
 
-更新角色数据范围。部门模块不在当前产品范围内，因此这里只保存 `deptIds` 兼容字段，不校验部门表。
+更新角色数据范围，`deptIds` 保存为 Keystone 兼容的部门 ID 集合。
 
 **需要认证，仅管理员**
 
@@ -844,6 +848,53 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 ### DELETE `/api/system/role/{roleIds}`
 
 删除一个或多个角色；已分配给用户的角色不能删除。多个 ID 使用逗号分隔，例如 `/api/system/role/4,5`。
+
+**需要认证，仅管理员**
+
+---
+
+### GET `/api/system/role/{roleId}/allocated/list`
+
+分页查询已关联该角色的用户列表。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `page` / `pageNum` | number | 页码，从 1 开始 | 1 |
+| `pageSize` | number | 每页条数 | 20 |
+| `username` | string | 用户名，模糊匹配 | — |
+| `phoneNumber` | string | 手机号，模糊匹配 | — |
+
+**响应** `200 OK` → `PageData<SystemUserDTO>`
+
+---
+
+### GET `/api/system/role/{roleId}/unallocated/list`
+
+分页查询未关联该角色的用户列表。
+
+**需要认证，仅管理员**
+
+**Query 参数**同已分配用户列表。
+
+**响应** `200 OK` → `PageData<SystemUserDTO>`
+
+---
+
+### POST `/api/system/role/{roleId}/users/{userIds}/grant/bulk`
+
+批量为用户授予角色。多个用户 ID 使用逗号分隔，例如 `/api/system/role/2/users/3,4/grant/bulk`。
+
+**需要认证，仅管理员**
+
+---
+
+### DELETE `/api/system/role/users/{userIds}/grant/bulk`
+
+批量解除用户与角色的关联。Keystone 该接口不携带 `roleId`，Agora 按同等语义删除指定用户的全部角色关联。多个用户 ID 使用逗号分隔。
 
 **需要认证，仅管理员**
 

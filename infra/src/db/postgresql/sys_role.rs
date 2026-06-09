@@ -1,8 +1,9 @@
-use common::RoleQuery;
 use common::dto::{
-    CreateRoleDTO, RoleDTO, UpdateRoleDTO, UpdateRoleDataScopeDTO, UpdateRoleStatusDTO,
+    CreateRoleDTO, RoleDTO, SystemUserDTO, UpdateRoleDTO, UpdateRoleDataScopeDTO,
+    UpdateRoleStatusDTO,
 };
 use common::po::PageData;
+use common::{RoleQuery, RoleUserQuery};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder, Transaction};
 use std::collections::HashSet;
 
@@ -36,6 +37,35 @@ struct RoleRow {
     dept_id_set: String,
 }
 
+#[derive(Debug, FromRow)]
+struct RoleUserWithTotal {
+    user_id: i64,
+    post_id: Option<i64>,
+    post_name: Option<String>,
+    role_id: Option<i64>,
+    role_name: Option<String>,
+    dept_id: Option<i64>,
+    dept_name: Option<String>,
+    username: String,
+    nickname: Option<String>,
+    user_type: Option<i16>,
+    email: Option<String>,
+    phone_number: Option<String>,
+    sex: Option<i16>,
+    avatar: Option<String>,
+    status: i16,
+    login_ip: Option<String>,
+    login_date: Option<chrono::DateTime<chrono::Utc>>,
+    creator_id: Option<i64>,
+    creator_name: Option<String>,
+    create_time: chrono::DateTime<chrono::Utc>,
+    updater_id: Option<i64>,
+    updater_name: Option<String>,
+    update_time: Option<chrono::DateTime<chrono::Utc>>,
+    remark: Option<String>,
+    total_count: i64,
+}
+
 #[derive(Debug)]
 struct NormalizedRole {
     role_name: String,
@@ -47,8 +77,12 @@ struct NormalizedRole {
     menu_ids: Vec<i64>,
 }
 
-fn page_bounds(page: Option<u32>, page_size: Option<u32>) -> (u32, u32, i64) {
-    let page = page.unwrap_or(DEFAULT_PAGE).max(1);
+fn page_bounds(
+    page: Option<u32>,
+    page_num: Option<u32>,
+    page_size: Option<u32>,
+) -> (u32, u32, i64) {
+    let page = page.or(page_num).unwrap_or(DEFAULT_PAGE).max(1);
     let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE).max(1);
     let offset = ((page - 1) * page_size) as i64;
     (page, page_size, offset)
@@ -187,6 +221,62 @@ fn role_dto_with_total(row: RoleWithTotal) -> RoleDTO {
         },
         Vec::new(),
     )
+}
+
+fn user_dto_with_total(row: RoleUserWithTotal) -> SystemUserDTO {
+    SystemUserDTO {
+        user_id: row.user_id,
+        post_id: row.post_id,
+        post_name: row.post_name,
+        role_id: row.role_id,
+        role_name: row.role_name,
+        dept_id: row.dept_id,
+        dept_name: row.dept_name,
+        username: row.username,
+        nickname: row.nickname,
+        user_type: row.user_type,
+        email: row.email,
+        phone_number: row.phone_number,
+        sex: row.sex,
+        avatar: row.avatar,
+        status: row.status,
+        login_ip: row.login_ip,
+        login_date: row.login_date,
+        creator_id: row.creator_id,
+        creator_name: row.creator_name,
+        create_time: row.create_time,
+        updater_id: row.updater_id,
+        updater_name: row.updater_name,
+        update_time: row.update_time,
+        remark: row.remark,
+    }
+}
+
+async fn ensure_role_available(role_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
+    let role: Option<(i16,)> =
+        sqlx::query_as("SELECT status FROM roles WHERE id = $1 AND deleted = FALSE")
+            .bind(role_id)
+            .fetch_optional(db_pool)
+            .await?;
+
+    match role {
+        Some((1,)) => Ok(()),
+        Some(_) => Err(anyhow::anyhow!("角色已停用")),
+        None => Err(anyhow::anyhow!("角色不存在")),
+    }
+}
+
+async fn ensure_role_exists(role_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1 AND deleted = FALSE)")
+            .bind(role_id)
+            .fetch_one(db_pool)
+            .await?;
+    if exists {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("角色不存在"))
+    }
 }
 
 async fn check_role_name_unique(
@@ -354,7 +444,7 @@ async fn sync_role_menus_and_permissions(
 }
 
 pub async fn list_roles(query: &RoleQuery, db_pool: &PgPool) -> anyhow::Result<PageData<RoleDTO>> {
-    let (page, page_size, offset) = page_bounds(query.page, query.page_size);
+    let (page, page_size, offset) = page_bounds(query.page, query.page_num, query.page_size);
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         r#"
             SELECT id AS role_id, role_name, role_key, role_sort, status, remark,
@@ -389,6 +479,110 @@ pub async fn list_roles(query: &RoleQuery, db_pool: &PgPool) -> anyhow::Result<P
     let rows: Vec<RoleWithTotal> = query_builder.build_query_as().fetch_all(db_pool).await?;
     let total_count = rows.first().map(|row| row.total_count).unwrap_or(0);
     let items = rows.into_iter().map(role_dto_with_total).collect();
+
+    Ok(PageData {
+        items,
+        total_count: total_count as usize,
+        page,
+        page_size,
+        total_pages: total_pages(total_count, page_size),
+    })
+}
+
+fn role_user_select_sql() -> &'static str {
+    r#"
+        SELECT u.id AS user_id, u.post_id, p.post_name,
+               selected.role_id, r.role_name, u.dept_id, d.dept_name,
+               u.username, u.nickname, u.user_type, u.email,
+               u.phone_number, u.sex, COALESCE(u.avatar, u.avatar_url) AS avatar,
+               COALESCE(u.user_status, CASE WHEN u.status = 'active' THEN 1 ELSE 0 END) AS status,
+               u.login_ip, u.login_date, u.creator_id, creator.username AS creator_name,
+               u.created_at AS create_time, u.updater_id, updater.username AS updater_name,
+               u.updated_at AS update_time, u.remark, COUNT(*) OVER() AS total_count
+        FROM user_info u
+        LEFT JOIN sys_dept d ON d.dept_id = u.dept_id AND d.deleted = FALSE
+        LEFT JOIN sys_post p ON p.post_id = u.post_id AND p.deleted = FALSE
+        LEFT JOIN LATERAL (
+            SELECT ur.role_id
+            FROM user_roles ur
+            JOIN roles role_order ON role_order.id = ur.role_id
+            WHERE ur.user_id = u.id
+              AND role_order.deleted = FALSE
+            ORDER BY role_order.role_sort ASC NULLS LAST, role_order.id ASC
+            LIMIT 1
+        ) selected ON TRUE
+        LEFT JOIN roles r ON r.id = selected.role_id AND r.deleted = FALSE
+        LEFT JOIN user_info creator ON creator.id = u.creator_id
+        LEFT JOIN user_info updater ON updater.id = u.updater_id
+        WHERE u.deleted = FALSE
+    "#
+}
+
+pub async fn list_role_users(
+    role_id: i64,
+    query: &RoleUserQuery,
+    allocated: bool,
+    db_pool: &PgPool,
+) -> anyhow::Result<PageData<SystemUserDTO>> {
+    if role_id <= 0 {
+        return Err(anyhow::anyhow!("roleId 必须为正整数"));
+    }
+    if query
+        .role_id
+        .is_some_and(|body_role_id| body_role_id != role_id)
+    {
+        return Err(anyhow::anyhow!("路径 roleId 与查询参数不一致"));
+    }
+    ensure_role_exists(role_id, db_pool).await?;
+
+    let (page, page_size, offset) = page_bounds(query.page, query.page_num, query.page_size);
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(role_user_select_sql());
+
+    if allocated {
+        query_builder.push(
+            r#"
+            AND EXISTS (
+                SELECT 1 FROM user_roles match_role
+                WHERE match_role.user_id = u.id
+                  AND match_role.role_id =
+            "#,
+        );
+        query_builder.push_bind(role_id);
+        query_builder.push(")");
+    } else {
+        query_builder.push(
+            r#"
+            AND NOT EXISTS (
+                SELECT 1 FROM user_roles match_role
+                WHERE match_role.user_id = u.id
+                  AND match_role.role_id =
+            "#,
+        );
+        query_builder.push_bind(role_id);
+        query_builder.push(")");
+    }
+
+    if let Some(username) = query.username.as_deref().filter(|value| !value.is_empty()) {
+        query_builder.push(" AND u.username ILIKE ");
+        query_builder.push_bind(format!("%{username}%"));
+    }
+    if let Some(phone_number) = query
+        .phone_number
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        query_builder.push(" AND u.phone_number ILIKE ");
+        query_builder.push_bind(format!("%{phone_number}%"));
+    }
+
+    query_builder.push(" ORDER BY u.id ASC LIMIT ");
+    query_builder.push_bind(page_size as i64);
+    query_builder.push(" OFFSET ");
+    query_builder.push_bind(offset);
+
+    let rows: Vec<RoleUserWithTotal> = query_builder.build_query_as().fetch_all(db_pool).await?;
+    let total_count = rows.first().map(|row| row.total_count).unwrap_or(0);
+    let items = rows.into_iter().map(user_dto_with_total).collect();
 
     Ok(PageData {
         items,
@@ -513,6 +707,72 @@ pub async fn update_role(data: &UpdateRoleDTO, db_pool: &PgPool) -> anyhow::Resu
     Ok(())
 }
 
+pub async fn grant_role_to_users(
+    role_id: i64,
+    user_ids: &[i64],
+    db_pool: &PgPool,
+) -> anyhow::Result<()> {
+    if role_id <= 0 {
+        return Err(anyhow::anyhow!("roleId 必须为正整数"));
+    }
+    if user_ids.is_empty() {
+        return Err(anyhow::anyhow!("userIds 不能为空"));
+    }
+    if user_ids.iter().any(|id| *id <= 0) {
+        return Err(anyhow::anyhow!("userIds 必须为正整数"));
+    }
+    ensure_role_available(role_id, db_pool).await?;
+
+    let distinct_user_ids: Vec<i64> = user_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let existing_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_info WHERE id = ANY($1) AND deleted = FALSE")
+            .bind(&distinct_user_ids)
+            .fetch_one(db_pool)
+            .await?;
+    if existing_count as usize != distinct_user_ids.len() {
+        return Err(anyhow::anyhow!("userIds 包含不存在的用户"));
+    }
+
+    let mut tx = db_pool.begin().await?;
+    for user_id in &distinct_user_ids {
+        sqlx::query(
+            r#"
+            INSERT INTO user_roles (user_id, role_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(user_id)
+        .bind(role_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn revoke_roles_from_users(user_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<u64> {
+    if user_ids.is_empty() {
+        return Err(anyhow::anyhow!("userIds 不能为空"));
+    }
+    if user_ids.iter().any(|id| *id <= 0) {
+        return Err(anyhow::anyhow!("userIds 必须为正整数"));
+    }
+
+    let result = sqlx::query("DELETE FROM user_roles WHERE user_id = ANY($1)")
+        .bind(user_ids)
+        .execute(db_pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}
+
 pub async fn update_role_status(
     role_id: i64,
     data: &UpdateRoleStatusDTO,
@@ -619,7 +879,7 @@ pub async fn delete_roles(role_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_role, parse_data_scope, parse_dept_ids, parse_status};
+    use super::{normalize_role, page_bounds, parse_data_scope, parse_dept_ids, parse_status};
 
     #[test]
     fn parse_status_accepts_keystone_values() {
@@ -650,5 +910,10 @@ mod tests {
     #[test]
     fn parse_dept_ids_ignores_empty_parts() {
         assert_eq!(parse_dept_ids("1, 2,,x"), vec![1, 2]);
+    }
+
+    #[test]
+    fn page_bounds_accepts_keystone_page_num_alias() {
+        assert_eq!(page_bounds(None, Some(2), Some(25)), (2, 25, 25));
     }
 }

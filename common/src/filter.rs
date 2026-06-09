@@ -105,6 +105,18 @@ pub struct RoleQuery {
     pub role_key: Option<String>,
     pub status: Option<String>,
     pub page: Option<u32>,
+    pub page_num: Option<u32>,
+    pub page_size: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleUserQuery {
+    pub role_id: Option<i64>,
+    pub username: Option<String>,
+    pub phone_number: Option<String>,
+    pub page: Option<u32>,
+    pub page_num: Option<u32>,
     pub page_size: Option<u32>,
 }
 

@@ -34,8 +34,9 @@ use crate::routes::{menu_create, menu_delete, menu_dropdown, menu_get, menu_upda
 use crate::routes::{notice_create, notice_delete, notice_get, notice_update, notices_list};
 use crate::routes::{profile_avatar_update, profile_get, profile_password_update, profile_update};
 use crate::routes::{
-    role_create, role_data_scope_update, role_delete, role_get, role_status_update, role_update,
-    roles_export, roles_list,
+    role_allocated_users_list, role_create, role_data_scope_update, role_delete, role_get,
+    role_status_update, role_unallocated_users_list, role_update, role_users_grant_create,
+    role_users_grant_delete, roles_export, roles_list,
 };
 use crate::routes::{
     system_config_cache_refresh, system_config_get, system_config_update, system_configs_list,
@@ -185,6 +186,10 @@ async fn create_server(
                         .service(roles_export)
                         .service(role_status_update)
                         .service(role_data_scope_update)
+                        .service(role_allocated_users_list)
+                        .service(role_unallocated_users_list)
+                        .service(role_users_grant_delete)
+                        .service(role_users_grant_create)
                         .service(role_get)
                         .service(role_create)
                         .service(role_update)

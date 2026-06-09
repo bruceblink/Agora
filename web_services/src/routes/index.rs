@@ -1,12 +1,6 @@
 use actix_web::{HttpResponse, get};
 use common::api::ApiResponse;
 use common::po::ApiResult;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-}
 
 #[get("/")]
 async fn index() -> ApiResult {
@@ -15,7 +9,7 @@ async fn index() -> ApiResult {
 
 #[get("/health")]
 async fn health() -> ApiResult {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(HealthResponse { status: "ok" })))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok("is alive")))
 }
 
 #[cfg(test)]
@@ -35,7 +29,9 @@ mod tests {
         let body = to_bytes(resp.into_body()).await.unwrap();
         let data: Value = serde_json::from_slice(&body).unwrap();
 
+        assert_eq!(data["code"], 0);
+        assert_eq!(data["msg"], "操作成功");
         assert_eq!(data["status"], "ok");
-        assert_eq!(data["data"]["status"], "ok");
+        assert_eq!(data["data"], "is alive");
     }
 }

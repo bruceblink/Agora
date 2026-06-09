@@ -11,6 +11,7 @@
 
 - [响应结构](#响应结构)
 - [认证 / 鉴权](#认证--鉴权)
+  - [健康检查](#get-health)
   - [登录](#post-login)
   - [Keylo Token 登录兼容入口](#post-loginkeylo)
   - [验证码](#get-captchaimage)
@@ -197,6 +198,25 @@
 ---
 
 ## 认证 / 鉴权
+
+### GET `/health`
+
+Keystone 兼容健康检查。
+
+**无需认证**
+
+**响应** `200 OK`
+
+```json
+{
+  "code": 0,
+  "msg": "操作成功",
+  "status": "ok",
+  "data": "is alive"
+}
+```
+
+---
 
 ### POST `/login`
 

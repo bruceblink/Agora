@@ -681,6 +681,17 @@ GitHub OAuth2 授权回调，由 GitHub 重定向至此。
 }
 ```
 
+文件不存在或读取失败时，与 Keystone 一致返回 `200 OK` 内部错误业务响应：
+
+```json
+{
+  "code": 2,
+  "msg": "系统内部错误",
+  "status": "error",
+  "message": "系统内部错误"
+}
+```
+
 ---
 
 ### POST `/api/file/upload`

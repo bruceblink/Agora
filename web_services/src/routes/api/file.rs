@@ -15,6 +15,8 @@ const DOWNLOAD_SUBDIR: &str = "download";
 const RESOURCE_PREFIX: &str = "/profile";
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 const MAX_FILE_NAME_LENGTH: usize = 127;
+const KEYSTONE_INTERNAL_ERROR_CODE: i32 = 2;
+const KEYSTONE_INTERNAL_ERROR_MSG: &str = "系统内部错误";
 const KEYSTONE_FILE_NOT_ALLOWED_CODE: i32 = 10004;
 const KEYSTONE_UPLOAD_FILE_EMPTY_CODE: i32 = 10405;
 const KEYSTONE_UPLOAD_FILE_EMPTY_MSG: &str = "上传文件为空";
@@ -110,6 +112,16 @@ fn file_not_allowed_response(filename: &str) -> ApiResponse<()> {
         msg: msg.clone(),
         status: "error".into(),
         message: Some(msg),
+        data: None,
+    }
+}
+
+fn internal_error_response() -> ApiResponse<()> {
+    ApiResponse {
+        code: KEYSTONE_INTERNAL_ERROR_CODE,
+        msg: KEYSTONE_INTERNAL_ERROR_MSG.into(),
+        status: "error".into(),
+        message: Some(KEYSTONE_INTERNAL_ERROR_MSG.into()),
         data: None,
     }
 }
@@ -255,10 +267,13 @@ async fn file_download(query: web::Query<DownloadQuery>) -> ApiResult {
     let file_path = PathBuf::from(PROFILE_DIR)
         .join(DOWNLOAD_SUBDIR)
         .join(&file_name);
-    let content = tokio::fs::read(&file_path).await.map_err(|e| {
-        tracing::warn!("读取下载文件失败 path={file_path:?}: {e}");
-        ApiError::NotFound("文件不存在".into())
-    })?;
+    let content = match tokio::fs::read(&file_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            tracing::warn!("读取下载文件失败 path={file_path:?}: {e}");
+            return Ok(HttpResponse::Ok().json(internal_error_response()));
+        }
+    };
 
     let download_name = format!("{}_{}", chrono::Utc::now().timestamp_millis(), file_name);
     Ok(HttpResponse::Ok()
@@ -303,11 +318,12 @@ async fn file_uploads(req: HttpRequest, payload: Multipart) -> ApiResult {
 #[cfg(test)]
 mod tests {
     use super::{
-        KEYSTONE_FILE_NOT_ALLOWED_CODE, KEYSTONE_UPLOAD_FILE_EMPTY_CODE,
-        KEYSTONE_UPLOAD_FILE_EMPTY_MSG, KEYSTONE_UPLOAD_FILE_FAILED_CODE, MAX_FILE_NAME_LENGTH,
-        MAX_FILE_SIZE, file_download, file_extension, file_upload, file_uploads,
-        generated_filename, is_allowed_extension, sanitize_filename, upload_failed_msg,
-        upload_file_empty_response, upload_size_exceeded_msg, validate_download_filename,
+        KEYSTONE_FILE_NOT_ALLOWED_CODE, KEYSTONE_INTERNAL_ERROR_CODE, KEYSTONE_INTERNAL_ERROR_MSG,
+        KEYSTONE_UPLOAD_FILE_EMPTY_CODE, KEYSTONE_UPLOAD_FILE_EMPTY_MSG,
+        KEYSTONE_UPLOAD_FILE_FAILED_CODE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, file_download,
+        file_extension, file_upload, file_uploads, generated_filename, is_allowed_extension,
+        sanitize_filename, upload_failed_msg, upload_file_empty_response, upload_size_exceeded_msg,
+        validate_download_filename,
     };
     use actix_web::{
         App,
@@ -363,6 +379,26 @@ mod tests {
         assert_eq!(data["msg"], "文件名称(../readme.txt)非法，不允许下载");
         assert_eq!(data["status"], "error");
         assert_eq!(data["message"], "文件名称(../readme.txt)非法，不允许下载");
+        assert!(data.get("data").is_none());
+    }
+
+    #[actix_web::test]
+    async fn file_download_returns_keystone_internal_error_for_missing_file() {
+        let app = actix_web::test::init_service(App::new().service(file_download)).await;
+        let req = actix_web::test::TestRequest::get()
+            .uri("/file/download?fileName=__agora_missing_download__.txt")
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body()).await.unwrap();
+        let data: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(data["code"], KEYSTONE_INTERNAL_ERROR_CODE);
+        assert_eq!(data["msg"], KEYSTONE_INTERNAL_ERROR_MSG);
+        assert_eq!(data["status"], "error");
+        assert_eq!(data["message"], KEYSTONE_INTERNAL_ERROR_MSG);
         assert!(data.get("data").is_none());
     }
 

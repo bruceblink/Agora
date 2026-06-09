@@ -5,14 +5,16 @@ use common::api::{ApiError, ApiResponse};
 use common::dto::{CreateNoticeDTO, UpdateNoticeDTO};
 use common::po::ApiResult;
 use common::utils::JwtClaims;
-use infra::{create_notice, delete_notices, get_notice, list_notices, update_notice};
+use infra::{
+    create_notice, delete_notices, get_notice, list_notices, parse_id_list, update_notice,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeleteNoticeQuery {
     #[serde(default)]
-    notice_ids: Vec<i64>,
+    notice_ids: String,
 }
 
 fn current_user_id(req: &HttpRequest) -> Result<i64, ApiError> {
@@ -129,7 +131,8 @@ async fn notice_delete(
     app_state: web::Data<AppState>,
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    let notice_ids = query.into_inner().notice_ids;
+    let notice_ids = parse_id_list(&query.into_inner().notice_ids, "noticeIds")
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     validate_delete_ids(&notice_ids)?;
 
     match delete_notices(&notice_ids, &app_state.db_pool).await {
@@ -143,7 +146,15 @@ async fn notice_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_delete_ids;
+    use super::{DeleteNoticeQuery, validate_delete_ids};
+
+    #[test]
+    fn delete_notice_query_accepts_comma_separated_ids() {
+        let query = actix_web::web::Query::<DeleteNoticeQuery>::from_query("noticeIds=1,2")
+            .expect("notice query parses");
+
+        assert_eq!(query.into_inner().notice_ids, "1,2");
+    }
 
     #[test]
     fn validate_delete_ids_rejects_empty_ids() {

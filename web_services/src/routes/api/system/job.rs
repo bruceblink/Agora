@@ -5,8 +5,8 @@ use common::api::{ApiError, ApiResponse};
 use common::dto::{CreateJobDTO, UpdateJobDTO, UpdateJobStatusDTO};
 use common::po::ApiResult;
 use infra::{
-    create_job, delete_jobs, extract_invoke_target_method, get_job, list_jobs, update_job,
-    update_job_status,
+    create_job, delete_jobs, extract_invoke_target_method, get_job, list_jobs, parse_id_list,
+    update_job, update_job_status,
 };
 use serde::Deserialize;
 use std::str::FromStr;
@@ -15,7 +15,7 @@ use std::str::FromStr;
 #[serde(rename_all = "camelCase")]
 struct DeleteJobsQuery {
     #[serde(default)]
-    job_ids: Vec<i64>,
+    job_ids: String,
 }
 
 fn validate_job_id(job_id: i64) -> Result<(), ApiError> {
@@ -214,7 +214,8 @@ async fn jobs_delete(
     app_state: web::Data<AppState>,
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    let job_ids = query.into_inner().job_ids;
+    let job_ids = parse_id_list(&query.into_inner().job_ids, "jobIds")
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     validate_job_ids(&job_ids)?;
 
     match delete_jobs(&job_ids, &app_state.db_pool).await {
@@ -234,7 +235,15 @@ async fn jobs_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_cron_expression, validate_job_id, validate_job_ids};
+    use super::{DeleteJobsQuery, validate_cron_expression, validate_job_id, validate_job_ids};
+
+    #[test]
+    fn delete_jobs_query_accepts_comma_separated_ids() {
+        let query = actix_web::web::Query::<DeleteJobsQuery>::from_query("jobIds=1,2")
+            .expect("job query parses");
+
+        assert_eq!(query.into_inner().job_ids, "1,2");
+    }
 
     #[test]
     fn validate_job_id_rejects_non_positive_ids() {

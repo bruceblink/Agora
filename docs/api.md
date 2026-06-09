@@ -95,6 +95,7 @@
   - [新增字典数据](#post-apisystemdictdata)
   - [更新字典数据](#put-apisystemdictdatadictcode)
   - [删除字典数据](#delete-apisystemdictdatadictcode)
+  - [批量删除系统定时任务](#delete-apisystemjobs)
 - [日志管理](#日志管理)
   - [分页查询登录日志](#get-apilogsloginlogs)
   - [导出登录日志](#get-apilogsloginlogsexcel)
@@ -850,7 +851,7 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `noticeIds` | number[] | ✓ | 可重复传递，例如 `?noticeIds=1&noticeIds=2` |
+| `noticeIds` | string | ✓ | 逗号分隔 ID，例如 `?noticeIds=1,2` |
 
 ---
 
@@ -1558,6 +1559,20 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 
 ---
 
+### DELETE `/api/system/jobs`
+
+批量删除 Keystone 兼容定时任务。删除成功后会刷新调度器配置。
+
+**需要认证，仅管理员**
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `jobIds` | string | ✓ | 逗号分隔 ID，例如 `?jobIds=1,2` |
+
+---
+
 ## 日志管理
 
 ### GET `/api/logs/loginLogs`
@@ -1632,7 +1647,7 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `ids` | number[] | ✓ | 可重复传递，例如 `?ids=415&ids=416` |
+| `ids` | string | ✓ | 逗号分隔 ID，例如 `?ids=415,416` |
 
 ---
 
@@ -1738,7 +1753,7 @@ Keystone 主从库示例接口的兼容别名。Query 参数和响应结构同 `
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `operationIds` | number[] | ✓ | 可重复传递，例如 `?operationIds=561&operationIds=562` |
+| `operationIds` | string | ✓ | 逗号分隔 ID，例如 `?operationIds=561,562` |
 
 ---
 

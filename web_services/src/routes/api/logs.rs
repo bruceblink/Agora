@@ -10,7 +10,7 @@ use common::utils::JwtClaims;
 use common::{LoginLogQuery, OperationLogQuery};
 use infra::{
     OperationLogContext, add_operation_log, delete_login_logs, delete_operation_logs,
-    list_login_logs, list_operation_logs,
+    list_login_logs, list_operation_logs, parse_id_list,
 };
 use serde::Deserialize;
 
@@ -18,14 +18,14 @@ use serde::Deserialize;
 #[serde(rename_all = "camelCase")]
 struct DeleteLoginLogQuery {
     #[serde(default)]
-    ids: Vec<i64>,
+    ids: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeleteOperationLogQuery {
     #[serde(default)]
-    operation_ids: Vec<i64>,
+    operation_ids: String,
 }
 
 fn request_ip(req: &HttpRequest) -> String {
@@ -166,7 +166,8 @@ async fn login_logs_delete(
     app_state: web::Data<AppState>,
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    let ids = query.into_inner().ids;
+    let ids = parse_id_list(&query.into_inner().ids, "ids")
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     validate_positive_ids(&ids, "ids")?;
 
     match delete_login_logs(&ids, &app_state.db_pool).await {
@@ -267,7 +268,8 @@ async fn operation_logs_delete(
     app_state: web::Data<AppState>,
 ) -> ApiResult {
     crate::routes::api::scheduled_tasks::ensure_admin_access(&req, &app_state).await?;
-    let operation_ids = query.into_inner().operation_ids;
+    let operation_ids = parse_id_list(&query.into_inner().operation_ids, "operationIds")
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     validate_positive_ids(&operation_ids, "operationIds")?;
 
     match delete_operation_logs(&operation_ids, &app_state.db_pool).await {
@@ -281,9 +283,24 @@ async fn operation_logs_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{login_log_export_row, operation_log_export_row, validate_positive_ids};
+    use super::{
+        DeleteLoginLogQuery, DeleteOperationLogQuery, login_log_export_row,
+        operation_log_export_row, validate_positive_ids,
+    };
     use chrono::Utc;
     use common::dto::{LoginLogDTO, OperationLogDTO};
+
+    #[test]
+    fn delete_log_queries_accept_comma_separated_ids() {
+        let login_query = actix_web::web::Query::<DeleteLoginLogQuery>::from_query("ids=1,2")
+            .expect("login log query parses");
+        let operation_query =
+            actix_web::web::Query::<DeleteOperationLogQuery>::from_query("operationIds=3,4")
+                .expect("operation log query parses");
+
+        assert_eq!(login_query.into_inner().ids, "1,2");
+        assert_eq!(operation_query.into_inner().operation_ids, "3,4");
+    }
 
     #[test]
     fn validate_positive_ids_rejects_empty_ids() {

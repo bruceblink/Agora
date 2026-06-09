@@ -1,12 +1,14 @@
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
 use common::dto::{
-    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, ResetUserPasswordDTO,
-    RoleDTO, SystemUserDTO, UpdateDeptDTO, UpdateOwnPasswordDTO, UpdatePostDTO, UpdateProfileDTO,
-    UpdateSystemUserDTO, UpdateUserStatusDTO, UserDetailDTO, UserProfileDTO,
+    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, PostResponseDTO,
+    ResetUserPasswordDTO, RoleDTO, SystemUserDTO, UpdateDeptDTO, UpdateOwnPasswordDTO,
+    UpdatePostDTO, UpdateProfileDTO, UpdateSystemUserDTO, UpdateUserStatusDTO, UserDetailDTO,
+    UserProfileDTO,
 };
 use common::po::PageData;
 use common::{DeptQuery, PostQuery, RoleQuery, SystemUserQuery};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder, Transaction};
+use std::fmt;
 
 const DEFAULT_PAGE: u32 = 1;
 const DEFAULT_PAGE_SIZE: u32 = 10;
@@ -124,6 +126,27 @@ struct NormalizedPost {
     remark: Option<String>,
     status: i16,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemPostBusinessError {
+    ObjectNotFound { id: i64 },
+    NameNotUnique { post_name: String },
+    CodeNotUnique { post_code: String },
+    AlreadyAssignedToUser,
+}
+
+impl fmt::Display for SystemPostBusinessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ObjectNotFound { id } => write!(f, "找不到ID为 {id} 的 职位"),
+            Self::NameNotUnique { post_name } => write!(f, "岗位名称:{post_name}, 已存在"),
+            Self::CodeNotUnique { post_code } => write!(f, "岗位编号:{post_code}, 已存在"),
+            Self::AlreadyAssignedToUser => f.write_str("职位已分配给用户，请先取消分配再删除"),
+        }
+    }
+}
+
+impl std::error::Error for SystemPostBusinessError {}
 
 #[derive(Debug)]
 struct NormalizedUser {
@@ -581,24 +604,6 @@ async fn check_post_unique(
     post_name: &str,
     db_pool: &PgPool,
 ) -> anyhow::Result<()> {
-    let duplicated_code: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM sys_post
-            WHERE post_code = $1
-              AND ($2::BIGINT IS NULL OR post_id <> $2)
-              AND deleted = FALSE
-        )
-        "#,
-    )
-    .bind(post_code)
-    .bind(post_id)
-    .fetch_one(db_pool)
-    .await?;
-    if duplicated_code {
-        return Err(anyhow::anyhow!("岗位编码已存在"));
-    }
-
     let duplicated_name: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS (
@@ -614,7 +619,31 @@ async fn check_post_unique(
     .fetch_one(db_pool)
     .await?;
     if duplicated_name {
-        return Err(anyhow::anyhow!("岗位名称已存在"));
+        return Err(SystemPostBusinessError::NameNotUnique {
+            post_name: post_name.to_string(),
+        }
+        .into());
+    }
+
+    let duplicated_code: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM sys_post
+            WHERE post_code = $1
+              AND ($2::BIGINT IS NULL OR post_id <> $2)
+              AND deleted = FALSE
+        )
+        "#,
+    )
+    .bind(post_code)
+    .bind(post_id)
+    .fetch_one(db_pool)
+    .await?;
+    if duplicated_code {
+        return Err(SystemPostBusinessError::CodeNotUnique {
+            post_code: post_code.to_string(),
+        }
+        .into());
     }
 
     Ok(())
@@ -1003,7 +1032,7 @@ pub async fn list_all_posts(db_pool: &PgPool) -> anyhow::Result<Vec<PostDTO>> {
     Ok(rows.into_iter().map(to_post_dto).collect())
 }
 
-pub async fn get_post(post_id: i64, db_pool: &PgPool) -> anyhow::Result<PostDTO> {
+pub async fn get_post(post_id: i64, db_pool: &PgPool) -> anyhow::Result<Option<PostResponseDTO>> {
     let row = sqlx::query_as::<_, PostRow>(
         r#"
         SELECT post_id, post_code, post_name, post_sort, remark, status,
@@ -1015,10 +1044,9 @@ pub async fn get_post(post_id: i64, db_pool: &PgPool) -> anyhow::Result<PostDTO>
     )
     .bind(post_id)
     .fetch_optional(db_pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("岗位不存在"))?;
+    .await?;
 
-    Ok(to_post_dto(row))
+    Ok(row.map(to_post_dto).map(PostResponseDTO::from))
 }
 
 pub async fn create_post(data: &CreatePostDTO, db_pool: &PgPool) -> anyhow::Result<()> {
@@ -1055,7 +1083,7 @@ pub async fn update_post(data: &UpdatePostDTO, db_pool: &PgPool) -> anyhow::Resu
         return Err(anyhow::anyhow!("postId 必须为正整数"));
     }
     if !post_exists(data.post_id, db_pool).await? {
-        return Err(anyhow::anyhow!("岗位不存在"));
+        return Err(SystemPostBusinessError::ObjectNotFound { id: data.post_id }.into());
     }
 
     let post = normalize_post(
@@ -1105,6 +1133,12 @@ pub async fn delete_posts(post_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<
         return Err(anyhow::anyhow!("ids 必须为正整数"));
     }
 
+    for post_id in post_ids {
+        if !post_exists(*post_id, db_pool).await? {
+            return Err(SystemPostBusinessError::ObjectNotFound { id: *post_id }.into());
+        }
+    }
+
     let assigned_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM user_info WHERE post_id = ANY($1) AND deleted = FALSE",
     )
@@ -1112,7 +1146,7 @@ pub async fn delete_posts(post_ids: &[i64], db_pool: &PgPool) -> anyhow::Result<
     .fetch_one(db_pool)
     .await?;
     if assigned_count > 0 {
-        return Err(anyhow::anyhow!("岗位已分配给用户，不允许删除"));
+        return Err(SystemPostBusinessError::AlreadyAssignedToUser.into());
     }
 
     let result = sqlx::query(
@@ -1837,8 +1871,9 @@ pub fn parse_id_list(value: &str, field_name: &str) -> anyhow::Result<Vec<i64>> 
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_dept, normalize_post, normalize_user, parse_id_list, parse_status_value,
-        status_label, trim_optional, user_status_to_login_status, validate_user_status,
+        SystemPostBusinessError, normalize_dept, normalize_post, normalize_user, parse_id_list,
+        parse_status_value, status_label, trim_optional, user_status_to_login_status,
+        validate_user_status,
     };
 
     #[test]
@@ -1876,6 +1911,36 @@ mod tests {
     fn normalize_post_rejects_blank_code_or_name() {
         assert!(normalize_post("", "董事长", 1, None, None).is_err());
         assert!(normalize_post("ceo", "", 1, None, None).is_err());
+    }
+
+    #[test]
+    fn post_business_errors_match_keystone_messages() {
+        let cases = [
+            (
+                SystemPostBusinessError::ObjectNotFound { id: 7 },
+                "找不到ID为 7 的 职位",
+            ),
+            (
+                SystemPostBusinessError::NameNotUnique {
+                    post_name: "研发工程师".to_string(),
+                },
+                "岗位名称:研发工程师, 已存在",
+            ),
+            (
+                SystemPostBusinessError::CodeNotUnique {
+                    post_code: "rd".to_string(),
+                },
+                "岗位编号:rd, 已存在",
+            ),
+            (
+                SystemPostBusinessError::AlreadyAssignedToUser,
+                "职位已分配给用户，请先取消分配再删除",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
     }
 
     #[test]

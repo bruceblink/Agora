@@ -663,6 +663,49 @@ pub struct PostDTO {
     pub create_time: chrono::DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostResponseDTO {
+    pub post_id: Option<i64>,
+    pub post_code: Option<String>,
+    pub post_name: Option<String>,
+    pub post_sort: Option<i32>,
+    pub remark: Option<String>,
+    pub status: Option<i16>,
+    pub status_str: Option<String>,
+    pub create_time: Option<chrono::DateTime<Utc>>,
+}
+
+impl PostResponseDTO {
+    pub fn empty() -> Self {
+        Self {
+            post_id: None,
+            post_code: None,
+            post_name: None,
+            post_sort: None,
+            remark: None,
+            status: None,
+            status_str: None,
+            create_time: None,
+        }
+    }
+}
+
+impl From<PostDTO> for PostResponseDTO {
+    fn from(value: PostDTO) -> Self {
+        Self {
+            post_id: Some(value.post_id),
+            post_code: Some(value.post_code),
+            post_name: Some(value.post_name),
+            post_sort: Some(value.post_sort),
+            remark: value.remark,
+            status: Some(value.status),
+            status_str: Some(value.status_str),
+            create_time: Some(value.create_time),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePostDTO {

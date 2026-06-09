@@ -7,18 +7,19 @@ use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, post, put, 
 use calamine::{Data, Reader, open_workbook_auto_from_rs};
 use common::api::{ApiError, ApiResponse};
 use common::dto::{
-    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, ResetUserPasswordDTO,
-    SystemUserDTO, UpdateDeptDTO, UpdatePostDTO, UpdateSystemUserDTO, UpdateUserStatusDTO,
+    CreateDeptDTO, CreatePostDTO, CreateSystemUserDTO, DeptDTO, PostDTO, PostResponseDTO,
+    ResetUserPasswordDTO, SystemUserDTO, UpdateDeptDTO, UpdatePostDTO, UpdateSystemUserDTO,
+    UpdateUserStatusDTO,
 };
 use common::po::ApiResult;
 use common::utils::JwtClaims;
 use common::{DeptQuery, PostQuery, SystemUserQuery};
 use futures_util::StreamExt;
 use infra::{
-    create_dept, create_post, create_system_user, delete_dept, delete_posts, delete_system_users,
-    get_dept, get_post, get_user_detail, list_depts, list_posts, list_system_users, parse_id_list,
-    update_dept, update_post, update_system_user, update_system_user_password,
-    update_system_user_status,
+    SystemPostBusinessError, create_dept, create_post, create_system_user, delete_dept,
+    delete_posts, delete_system_users, get_dept, get_post, get_user_detail, list_depts, list_posts,
+    list_system_users, parse_id_list, update_dept, update_post, update_system_user,
+    update_system_user_password, update_system_user_status,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,6 +40,31 @@ const USER_IMPORT_HEADERS: [&str; 12] = [
     "职位ID",
     "备注",
 ];
+
+const KEYSTONE_OBJECT_NOT_FOUND_CODE: i32 = 10001;
+const KEYSTONE_POST_NAME_NOT_UNIQUE_CODE: i32 = 10701;
+const KEYSTONE_POST_CODE_NOT_UNIQUE_CODE: i32 = 10702;
+const KEYSTONE_POST_ASSIGNED_TO_USER_CODE: i32 = 10703;
+
+fn business_error_response(code: i32, msg: String) -> ApiResponse<()> {
+    ApiResponse {
+        code,
+        msg: msg.clone(),
+        status: "error".into(),
+        message: Some(msg),
+        data: None,
+    }
+}
+
+fn post_business_error_response(error: &SystemPostBusinessError) -> ApiResponse<()> {
+    let code = match error {
+        SystemPostBusinessError::ObjectNotFound { .. } => KEYSTONE_OBJECT_NOT_FOUND_CODE,
+        SystemPostBusinessError::NameNotUnique { .. } => KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
+        SystemPostBusinessError::CodeNotUnique { .. } => KEYSTONE_POST_CODE_NOT_UNIQUE_CODE,
+        SystemPostBusinessError::AlreadyAssignedToUser => KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
+    };
+    business_error_response(code, error.to_string())
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -539,10 +565,11 @@ async fn post_get(
     validate_positive_id(post_id, "postId")?;
 
     match get_post(post_id, &app_state.db_pool).await {
-        Ok(data) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(Some(data)) => Ok(HttpResponse::Ok().json(ApiResponse::ok(data))),
+        Ok(None) => Ok(HttpResponse::Ok().json(ApiResponse::ok(PostResponseDTO::empty()))),
         Err(e) => {
             tracing::error!("查询岗位 {post_id} 失败: {e:?}");
-            Err(ApiError::NotFound(format!("岗位 {post_id} 不存在")))
+            Err(ApiError::Database("查询岗位失败".into()))
         }
     }
 }
@@ -559,6 +586,9 @@ async fn post_create(
     match create_post(&data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemPostBusinessError>() {
+                return Ok(HttpResponse::Ok().json(post_business_error_response(error)));
+            }
             tracing::error!("新增岗位失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -577,6 +607,9 @@ async fn post_update(
     match update_post(&data, &app_state.db_pool).await {
         Ok(()) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemPostBusinessError>() {
+                return Ok(HttpResponse::Ok().json(post_business_error_response(error)));
+            }
             tracing::error!("更新岗位失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -596,6 +629,9 @@ async fn posts_delete(
     match delete_posts(&ids, &app_state.db_pool).await {
         Ok(_) => Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok(()))),
         Err(e) => {
+            if let Some(error) = e.downcast_ref::<SystemPostBusinessError>() {
+                return Ok(HttpResponse::Ok().json(post_business_error_response(error)));
+            }
             tracing::error!("删除岗位失败: {e:?}");
             Err(ApiError::BadRequest(e.to_string()))
         }
@@ -868,13 +904,17 @@ async fn users_delete(
 #[cfg(test)]
 mod tests {
     use super::{
+        KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
+        KEYSTONE_POST_CODE_NOT_UNIQUE_CODE, KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
         USER_IMPORT_HEADERS, dept_tree_nodes, hash_password, parse_import_users_excel,
-        user_export_row, validate_positive_id,
+        post_business_error_response, user_export_row, validate_positive_id,
     };
     use crate::routes::api::export::xlsx_from_rows;
     use chrono::Utc;
-    use common::api::ApiError;
-    use common::dto::{DeptDTO, SystemUserDTO};
+    use common::api::{ApiError, ApiResponse};
+    use common::dto::{DeptDTO, PostResponseDTO, SystemUserDTO};
+    use infra::SystemPostBusinessError;
+    use serde_json::json;
 
     #[test]
     fn validate_positive_id_rejects_non_positive_values() {
@@ -885,6 +925,59 @@ mod tests {
     #[test]
     fn hash_password_rejects_short_password() {
         assert!(hash_password("short").is_err());
+    }
+
+    #[test]
+    fn missing_post_detail_matches_keystone_empty_success() {
+        let value = serde_json::to_value(ApiResponse::ok(PostResponseDTO::empty()))
+            .unwrap_or_else(|_| json!(null));
+
+        assert_eq!(value["code"], 0);
+        assert_eq!(value["msg"], "操作成功");
+        assert_eq!(value["status"], "ok");
+        assert!(value["data"].is_object());
+        assert!(value["data"]["postId"].is_null());
+        assert!(value["data"]["postName"].is_null());
+    }
+
+    #[test]
+    fn post_business_responses_match_keystone_errors() {
+        let cases = [
+            (
+                SystemPostBusinessError::ObjectNotFound { id: 8 },
+                KEYSTONE_OBJECT_NOT_FOUND_CODE,
+                "找不到ID为 8 的 职位",
+            ),
+            (
+                SystemPostBusinessError::NameNotUnique {
+                    post_name: "研发工程师".to_string(),
+                },
+                KEYSTONE_POST_NAME_NOT_UNIQUE_CODE,
+                "岗位名称:研发工程师, 已存在",
+            ),
+            (
+                SystemPostBusinessError::CodeNotUnique {
+                    post_code: "rd".to_string(),
+                },
+                KEYSTONE_POST_CODE_NOT_UNIQUE_CODE,
+                "岗位编号:rd, 已存在",
+            ),
+            (
+                SystemPostBusinessError::AlreadyAssignedToUser,
+                KEYSTONE_POST_ASSIGNED_TO_USER_CODE,
+                "职位已分配给用户，请先取消分配再删除",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            let value = serde_json::to_value(post_business_error_response(&error))
+                .unwrap_or_else(|_| json!(null));
+            assert_eq!(value["code"], code);
+            assert_eq!(value["msg"], message);
+            assert_eq!(value["message"], message);
+            assert_eq!(value["status"], "error");
+            assert!(value.get("data").is_none());
+        }
     }
 
     #[test]

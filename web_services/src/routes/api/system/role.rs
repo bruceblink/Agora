@@ -363,7 +363,6 @@ mod tests {
     use common::api::ApiError;
     use common::dto::RoleDTO;
     use infra::SystemRoleBusinessError;
-    use serde_json::json;
 
     use super::{
         KEYSTONE_OBJECT_NOT_FOUND_CODE, KEYSTONE_ROLE_ASSIGNED_TO_USER_CODE,
@@ -444,7 +443,7 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(role_business_error_response(&error))
-                .unwrap_or_else(|_| json!(null));
+                .unwrap_or(serde_json::Value::Null);
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);
             assert_eq!(value["message"], message);

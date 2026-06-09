@@ -164,11 +164,11 @@ fn generated_filename(original_filename: &str, extension: &str) -> String {
         .map(sanitize_filename)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "file".to_string());
+    let random = rand::random::<u128>();
     format!(
-        "{}_{}_{}.{extension}",
+        "{}_{}_{random:032x}.{extension}",
         chrono::Local::now().format("%Y%m%d%H%M%S"),
         base_name,
-        format!("{:032x}", rand::random::<u128>())
     )
 }
 

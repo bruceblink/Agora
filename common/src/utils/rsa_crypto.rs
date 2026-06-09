@@ -49,15 +49,14 @@ mod tests {
     use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 
     #[test]
-    fn public_key_can_encrypt_password_for_private_key() {
-        let public_key = login_rsa_public_key_base64().unwrap();
-        let der = STANDARD.decode(public_key).unwrap();
-        let public_key = RsaPublicKey::from_public_key_der(&der).unwrap();
-        let encrypted = public_key
-            .encrypt(&mut OsRng, Pkcs1v15Encrypt, b"password123")
-            .unwrap();
+    fn public_key_can_encrypt_password_for_private_key() -> anyhow::Result<()> {
+        let public_key = login_rsa_public_key_base64()?;
+        let der = STANDARD.decode(public_key)?;
+        let public_key = RsaPublicKey::from_public_key_der(&der)?;
+        let encrypted = public_key.encrypt(&mut OsRng, Pkcs1v15Encrypt, b"password123")?;
         let encrypted = STANDARD.encode(encrypted);
 
-        assert_eq!(decrypt_login_password(&encrypted).unwrap(), "password123");
+        assert_eq!(decrypt_login_password(&encrypted)?, "password123");
+        Ok(())
     }
 }

@@ -192,6 +192,20 @@ struct NormalizedUser {
     remark: Option<String>,
 }
 
+struct UserNormalizationInput<'a> {
+    username: Option<&'a str>,
+    nickname: Option<&'a str>,
+    email: Option<&'a str>,
+    phone_number: Option<&'a str>,
+    sex: Option<i16>,
+    avatar: Option<&'a str>,
+    status: Option<i16>,
+    role_id: Option<i64>,
+    dept_id: Option<i64>,
+    post_id: Option<i64>,
+    remark: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SystemUserBusinessError {
     ObjectNotFound { id: i64, object_name: &'static str },
@@ -337,7 +351,7 @@ fn validate_common_status(status: i16) -> anyhow::Result<()> {
 }
 
 fn validate_user_status(status: i16) -> anyhow::Result<()> {
-    if matches!(status, 0 | 1 | 2 | 3) {
+    if matches!(status, 0..=3) {
         Ok(())
     } else {
         Err(anyhow::anyhow!("用户状态必须是 0、1、2 或 3"))
@@ -345,7 +359,7 @@ fn validate_user_status(status: i16) -> anyhow::Result<()> {
 }
 
 fn validate_sex(sex: i16) -> anyhow::Result<()> {
-    if matches!(sex, 0 | 1 | 2) {
+    if matches!(sex, 0..=2) {
         Ok(())
     } else {
         Err(anyhow::anyhow!("用户性别必须是 0、1 或 2"))
@@ -425,20 +439,9 @@ fn normalize_post(
     })
 }
 
-fn normalize_user(
-    username: Option<&str>,
-    nickname: Option<&str>,
-    email: Option<&str>,
-    phone_number: Option<&str>,
-    sex: Option<i16>,
-    avatar: Option<&str>,
-    status: Option<i16>,
-    role_id: Option<i64>,
-    dept_id: Option<i64>,
-    post_id: Option<i64>,
-    remark: Option<&str>,
-) -> anyhow::Result<NormalizedUser> {
-    let username = username
+fn normalize_user(input: UserNormalizationInput<'_>) -> anyhow::Result<NormalizedUser> {
+    let username = input
+        .username
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("用户名不能为空"))?
@@ -447,15 +450,15 @@ fn normalize_user(
         return Err(anyhow::anyhow!("用户名长度不能超过100个字符"));
     }
 
-    let status = status.unwrap_or(1);
+    let status = input.status.unwrap_or(1);
     validate_user_status(status)?;
-    let sex = sex.unwrap_or(2);
+    let sex = input.sex.unwrap_or(2);
     validate_sex(sex)?;
 
     for (field, field_name) in [
-        (role_id, "roleId"),
-        (dept_id, "deptId"),
-        (post_id, "postId"),
+        (input.role_id, "roleId"),
+        (input.dept_id, "deptId"),
+        (input.post_id, "postId"),
     ] {
         if field.is_some_and(|id| id <= 0) {
             return Err(anyhow::anyhow!("{field_name} 必须为正整数"));
@@ -463,17 +466,17 @@ fn normalize_user(
     }
 
     Ok(NormalizedUser {
-        dept_id,
+        dept_id: input.dept_id,
         username,
-        nickname: trim_optional(nickname),
-        email: trim_optional(email),
-        phone_number: trim_optional(phone_number),
+        nickname: trim_optional(input.nickname),
+        email: trim_optional(input.email),
+        phone_number: trim_optional(input.phone_number),
         sex,
-        avatar: trim_optional(avatar),
+        avatar: trim_optional(input.avatar),
         status,
-        role_id,
-        post_id,
-        remark: trim_optional(remark),
+        role_id: input.role_id,
+        post_id: input.post_id,
+        remark: trim_optional(input.remark),
     })
 }
 
@@ -1606,19 +1609,19 @@ pub async fn create_system_user(
     creator_id: Option<i64>,
     db_pool: &PgPool,
 ) -> anyhow::Result<()> {
-    let user = normalize_user(
-        Some(&data.username),
-        data.nickname.as_deref(),
-        data.email.as_deref(),
-        data.phone_number.as_deref(),
-        data.sex,
-        data.avatar.as_deref(),
-        data.status,
-        data.role_id,
-        data.dept_id,
-        data.post_id,
-        data.remark.as_deref(),
-    )?;
+    let user = normalize_user(UserNormalizationInput {
+        username: Some(&data.username),
+        nickname: data.nickname.as_deref(),
+        email: data.email.as_deref(),
+        phone_number: data.phone_number.as_deref(),
+        sex: data.sex,
+        avatar: data.avatar.as_deref(),
+        status: data.status,
+        role_id: data.role_id,
+        dept_id: data.dept_id,
+        post_id: data.post_id,
+        remark: data.remark.as_deref(),
+    })?;
     check_username_unique(&user.username, db_pool).await?;
     check_phone_unique(None, user.phone_number.as_deref(), db_pool).await?;
     check_email_unique(None, user.email.as_deref(), db_pool).await?;
@@ -1675,21 +1678,22 @@ pub async fn update_system_user(
     }
 
     let existing = get_system_user(path_user_id, db_pool).await?;
-    let user = normalize_user(
-        data.username.as_deref().or(Some(&existing.username)),
-        data.nickname.as_deref().or(existing.nickname.as_deref()),
-        data.email.as_deref().or(existing.email.as_deref()),
-        data.phone_number
+    let user = normalize_user(UserNormalizationInput {
+        username: data.username.as_deref().or(Some(&existing.username)),
+        nickname: data.nickname.as_deref().or(existing.nickname.as_deref()),
+        email: data.email.as_deref().or(existing.email.as_deref()),
+        phone_number: data
+            .phone_number
             .as_deref()
             .or(existing.phone_number.as_deref()),
-        data.sex.or(existing.sex),
-        data.avatar.as_deref().or(existing.avatar.as_deref()),
-        data.status.or(Some(existing.status)),
-        data.role_id.or(existing.role_id),
-        data.dept_id.or(existing.dept_id),
-        data.post_id.or(existing.post_id),
-        data.remark.as_deref().or(existing.remark.as_deref()),
-    )?;
+        sex: data.sex.or(existing.sex),
+        avatar: data.avatar.as_deref().or(existing.avatar.as_deref()),
+        status: data.status.or(Some(existing.status)),
+        role_id: data.role_id.or(existing.role_id),
+        dept_id: data.dept_id.or(existing.dept_id),
+        post_id: data.post_id.or(existing.post_id),
+        remark: data.remark.as_deref().or(existing.remark.as_deref()),
+    })?;
     check_phone_unique(Some(path_user_id), user.phone_number.as_deref(), db_pool).await?;
     check_email_unique(Some(path_user_id), user.email.as_deref(), db_pool).await?;
     ensure_user_relations(&user, db_pool).await?;
@@ -2001,9 +2005,10 @@ pub fn parse_id_list(value: &str, field_name: &str) -> anyhow::Result<Vec<i64>> 
 #[cfg(test)]
 mod tests {
     use super::{
-        SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError, normalize_dept,
-        normalize_post, normalize_user, parse_id_list, parse_status_value, status_label,
-        trim_optional, user_status_to_login_status, validate_user_status,
+        SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError,
+        UserNormalizationInput, normalize_dept, normalize_post, normalize_user, parse_id_list,
+        parse_status_value, status_label, trim_optional, user_status_to_login_status,
+        validate_user_status,
     };
 
     #[test]
@@ -2158,19 +2163,19 @@ mod tests {
         assert!(validate_user_status(3).is_ok());
         assert!(validate_user_status(4).is_err());
         assert!(
-            normalize_user(
-                Some("admin"),
-                None,
-                None,
-                None,
-                Some(4),
-                None,
-                Some(1),
-                None,
-                None,
-                None,
-                None
-            )
+            normalize_user(UserNormalizationInput {
+                username: Some("admin"),
+                nickname: None,
+                email: None,
+                phone_number: None,
+                sex: Some(4),
+                avatar: None,
+                status: Some(1),
+                role_id: None,
+                dept_id: None,
+                post_id: None,
+                remark: None,
+            })
             .is_err()
         );
     }

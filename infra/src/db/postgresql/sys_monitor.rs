@@ -46,7 +46,7 @@ fn total_pages(total_count: i64, page_size: u32) -> u32 {
     if total_count <= 0 {
         0
     } else {
-        ((total_count as u32) + page_size - 1) / page_size
+        (total_count as u32).div_ceil(page_size)
     }
 }
 

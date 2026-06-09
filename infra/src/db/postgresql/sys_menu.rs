@@ -45,6 +45,19 @@ struct NormalizedMenu {
     meta: MenuMetaDTO,
 }
 
+struct MenuNormalizationInput<'a> {
+    parent_id: Option<i64>,
+    menu_name: &'a str,
+    router_name: Option<&'a str>,
+    path: Option<&'a str>,
+    status: Option<i16>,
+    menu_type: Option<i16>,
+    is_button: Option<bool>,
+    permission: Option<&'a str>,
+    meta: Option<&'a MenuMetaDTO>,
+    fallback_menu_type: Option<i16>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SystemMenuBusinessError {
     ObjectNotFound { id: i64 },
@@ -176,24 +189,13 @@ fn validate_menu_type(menu_type: i16, is_button: bool) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("菜单类型必须是 1、2、3 或 4"))
 }
 
-fn normalize_menu(
-    parent_id: Option<i64>,
-    menu_name: &str,
-    router_name: Option<&str>,
-    path: Option<&str>,
-    status: Option<i16>,
-    menu_type: Option<i16>,
-    is_button: Option<bool>,
-    permission: Option<&str>,
-    meta: Option<&MenuMetaDTO>,
-    fallback_menu_type: Option<i16>,
-) -> anyhow::Result<NormalizedMenu> {
-    let parent_id = parent_id.unwrap_or(0);
+fn normalize_menu(input: MenuNormalizationInput<'_>) -> anyhow::Result<NormalizedMenu> {
+    let parent_id = input.parent_id.unwrap_or(0);
     if parent_id < 0 {
         return Err(anyhow::anyhow!("父级菜单ID不能小于 0"));
     }
 
-    let menu_name = menu_name.trim().to_string();
+    let menu_name = input.menu_name.trim().to_string();
     if menu_name.is_empty() {
         return Err(anyhow::anyhow!("菜单名称不能为空"));
     }
@@ -201,22 +203,22 @@ fn normalize_menu(
         return Err(anyhow::anyhow!("菜单名称长度不能超过50个字符"));
     }
 
-    let router_name = router_name.unwrap_or("").trim().to_string();
-    let path = path.unwrap_or("").trim().to_string();
+    let router_name = input.router_name.unwrap_or("").trim().to_string();
+    let path = input.path.unwrap_or("").trim().to_string();
     if path.chars().count() > 200 {
         return Err(anyhow::anyhow!("路由地址不能超过200个字符"));
     }
 
-    let permission = permission.unwrap_or("").trim().to_string();
+    let permission = input.permission.unwrap_or("").trim().to_string();
     if permission.chars().count() > 100 {
         return Err(anyhow::anyhow!("权限标识长度不能超过100个字符"));
     }
 
-    let status = status.unwrap_or(0);
+    let status = input.status.unwrap_or(0);
     validate_status(status)?;
 
-    let is_button = is_button.unwrap_or(false);
-    let menu_type = menu_type.or(fallback_menu_type).unwrap_or(0);
+    let is_button = input.is_button.unwrap_or(false);
+    let menu_type = input.menu_type.or(input.fallback_menu_type).unwrap_or(0);
     validate_menu_type(menu_type, is_button)?;
 
     if menu_type == 4 && !(path.starts_with("http://") || path.starts_with("https://")) {
@@ -232,7 +234,7 @@ fn normalize_menu(
         menu_type,
         is_button,
         permission,
-        meta: meta.cloned().unwrap_or_default(),
+        meta: input.meta.cloned().unwrap_or_default(),
     })
 }
 
@@ -478,18 +480,18 @@ pub async fn list_user_router_tree(
 }
 
 pub async fn create_menu(data: &CreateMenuDTO, db_pool: &PgPool) -> anyhow::Result<()> {
-    let menu = normalize_menu(
-        data.parent_id,
-        &data.menu_name,
-        data.router_name.as_deref(),
-        data.path.as_deref(),
-        data.status,
-        data.menu_type,
-        data.is_button,
-        data.permission.as_deref(),
-        data.meta.as_ref(),
-        None,
-    )?;
+    let menu = normalize_menu(MenuNormalizationInput {
+        parent_id: data.parent_id,
+        menu_name: &data.menu_name,
+        router_name: data.router_name.as_deref(),
+        path: data.path.as_deref(),
+        status: data.status,
+        menu_type: data.menu_type,
+        is_button: data.is_button,
+        permission: data.permission.as_deref(),
+        meta: data.meta.as_ref(),
+        fallback_menu_type: None,
+    })?;
 
     check_parent_rules(&menu, db_pool).await?;
     check_menu_name_unique(None, &menu.menu_name, menu.parent_id, db_pool).await?;
@@ -539,18 +541,18 @@ pub async fn update_menu(
     let (existing_menu_type, existing_is_button) =
         existing.ok_or(SystemMenuBusinessError::ObjectNotFound { id: menu_id })?;
 
-    let menu = normalize_menu(
-        data.parent_id,
-        &data.menu_name,
-        data.router_name.as_deref(),
-        data.path.as_deref(),
-        data.status,
-        data.menu_type,
-        data.is_button,
-        data.permission.as_deref(),
-        data.meta.as_ref(),
-        Some(existing_menu_type),
-    )?;
+    let menu = normalize_menu(MenuNormalizationInput {
+        parent_id: data.parent_id,
+        menu_name: &data.menu_name,
+        router_name: data.router_name.as_deref(),
+        path: data.path.as_deref(),
+        status: data.status,
+        menu_type: data.menu_type,
+        is_button: data.is_button,
+        permission: data.permission.as_deref(),
+        meta: data.meta.as_ref(),
+        fallback_menu_type: Some(existing_menu_type),
+    })?;
 
     if menu_id == menu.parent_id {
         return Err(SystemMenuBusinessError::ParentIdNotAllowSelf.into());
@@ -647,8 +649,8 @@ pub async fn delete_menu(menu_id: i64, db_pool: &PgPool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MenuRow, SystemMenuBusinessError, build_router_tree, normalize_menu, validate_menu_type,
-        validate_status,
+        MenuNormalizationInput, MenuRow, SystemMenuBusinessError, build_router_tree,
+        normalize_menu, validate_menu_type, validate_status,
     };
     use chrono::Utc;
 
@@ -669,18 +671,18 @@ mod tests {
 
     #[test]
     fn normalize_menu_rejects_external_link_without_http() {
-        let result = normalize_menu(
-            Some(0),
-            "外链",
-            Some("External"),
-            Some("/external"),
-            Some(1),
-            Some(4),
-            Some(false),
-            None,
-            None,
-            None,
-        );
+        let result = normalize_menu(MenuNormalizationInput {
+            parent_id: Some(0),
+            menu_name: "外链",
+            router_name: Some("External"),
+            path: Some("/external"),
+            status: Some(1),
+            menu_type: Some(4),
+            is_button: Some(false),
+            permission: None,
+            meta: None,
+            fallback_menu_type: None,
+        });
         assert!(result.is_err());
     }
 
@@ -789,34 +791,34 @@ mod tests {
     #[test]
     fn normalize_menu_rejects_blank_or_long_name() {
         assert!(
-            normalize_menu(
-                None,
-                "",
-                None,
-                None,
-                Some(1),
-                Some(1),
-                Some(false),
-                None,
-                None,
-                None
-            )
+            normalize_menu(MenuNormalizationInput {
+                parent_id: None,
+                menu_name: "",
+                router_name: None,
+                path: None,
+                status: Some(1),
+                menu_type: Some(1),
+                is_button: Some(false),
+                permission: None,
+                meta: None,
+                fallback_menu_type: None,
+            })
             .is_err()
         );
         let long_name = "a".repeat(51);
         assert!(
-            normalize_menu(
-                None,
-                &long_name,
-                None,
-                None,
-                Some(1),
-                Some(1),
-                Some(false),
-                None,
-                None,
-                None
-            )
+            normalize_menu(MenuNormalizationInput {
+                parent_id: None,
+                menu_name: &long_name,
+                router_name: None,
+                path: None,
+                status: Some(1),
+                menu_type: Some(1),
+                is_button: Some(false),
+                permission: None,
+                meta: None,
+                fallback_menu_type: None,
+            })
             .is_err()
         );
     }

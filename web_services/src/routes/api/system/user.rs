@@ -982,7 +982,6 @@ mod tests {
     use common::api::{ApiError, ApiResponse};
     use common::dto::{DeptDTO, DeptResponseDTO, PostResponseDTO, SystemUserDTO, UserDetailDTO};
     use infra::{SystemDeptBusinessError, SystemPostBusinessError, SystemUserBusinessError};
-    use serde_json::json;
 
     #[test]
     fn validate_positive_id_rejects_non_positive_values() {
@@ -998,7 +997,7 @@ mod tests {
     #[test]
     fn missing_dept_detail_matches_keystone_empty_success() {
         let value = serde_json::to_value(ApiResponse::ok(DeptResponseDTO::empty()))
-            .unwrap_or_else(|_| json!(null));
+            .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 0);
         assert_eq!(value["msg"], "操作成功");
@@ -1052,7 +1051,7 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(dept_business_error_response(&error))
-                .unwrap_or_else(|_| json!(null));
+                .unwrap_or(serde_json::Value::Null);
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);
             assert_eq!(value["message"], message);
@@ -1064,7 +1063,7 @@ mod tests {
     #[test]
     fn missing_post_detail_matches_keystone_empty_success() {
         let value = serde_json::to_value(ApiResponse::ok(PostResponseDTO::empty()))
-            .unwrap_or_else(|_| json!(null));
+            .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 0);
         assert_eq!(value["msg"], "操作成功");
@@ -1105,7 +1104,7 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(post_business_error_response(&error))
-                .unwrap_or_else(|_| json!(null));
+                .unwrap_or(serde_json::Value::Null);
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);
             assert_eq!(value["message"], message);
@@ -1124,7 +1123,7 @@ mod tests {
             role_id: None,
             permissions: Vec::new(),
         }))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 0);
         assert_eq!(value["msg"], "操作成功");
@@ -1178,7 +1177,7 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(user_business_error_response(&error))
-                .unwrap_or_else(|_| json!(null));
+                .unwrap_or(serde_json::Value::Null);
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);
             assert_eq!(value["message"], message);

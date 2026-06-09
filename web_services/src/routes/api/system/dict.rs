@@ -315,7 +315,6 @@ mod tests {
         dict_business_error_response, validate_default_flag, validate_status,
     };
     use infra::SystemDictBusinessError;
-    use serde_json::json;
 
     #[test]
     fn validate_status_accepts_keystone_flags() {
@@ -339,7 +338,7 @@ mod tests {
                 object_name: "字典数据",
             },
         ))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], KEYSTONE_OBJECT_NOT_FOUND_CODE);
         assert_eq!(value["msg"], "找不到ID为 9 的 字典数据");
@@ -353,7 +352,7 @@ mod tests {
         let value = serde_json::to_value(dict_business_error_response(
             &SystemDictBusinessError::TypeHasData,
         ))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], KEYSTONE_DICT_TYPE_HAS_DATA_CODE);
         assert_eq!(value["msg"], "字典类型下存在字典数据，请先删除字典数据");

@@ -141,7 +141,7 @@ mod tests {
         let response = ApiResponse::ok(json!({"value": 1}));
         let value = serde_json::to_value(response);
         assert!(value.is_ok());
-        let value = value.unwrap_or_else(|_| json!(null));
+        let value = value.unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 0);
         assert_eq!(value["msg"], "操作成功");
@@ -154,7 +154,7 @@ mod tests {
         let response = ApiResponse::<()>::err("失败");
         let value = serde_json::to_value(response);
         assert!(value.is_ok());
-        let value = value.unwrap_or_else(|_| json!(null));
+        let value = value.unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 1);
         assert_eq!(value["msg"], "失败");

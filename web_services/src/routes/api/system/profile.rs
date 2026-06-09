@@ -212,7 +212,6 @@ mod tests {
         user_business_error_response,
     };
     use infra::SystemUserBusinessError;
-    use serde_json::json;
 
     #[test]
     fn avatar_size_limit_matches_product_guardrail() {
@@ -253,7 +252,7 @@ mod tests {
 
         for (error, code, message) in cases {
             let value = serde_json::to_value(user_business_error_response(&error))
-                .unwrap_or_else(|_| json!(null));
+                .unwrap_or(serde_json::Value::Null);
             assert_eq!(value["code"], code);
             assert_eq!(value["msg"], message);
             assert_eq!(value["message"], message);

@@ -171,7 +171,6 @@ mod tests {
         validate_delete_ids,
     };
     use infra::SystemNoticeNotFoundError;
-    use serde_json::json;
 
     #[test]
     fn delete_notice_query_accepts_comma_separated_ids() {
@@ -202,7 +201,7 @@ mod tests {
         let value = serde_json::to_value(notice_not_found_response(&SystemNoticeNotFoundError {
             notice_id: 12,
         }))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], KEYSTONE_OBJECT_NOT_FOUND_CODE);
         assert_eq!(value["msg"], "找不到ID为 12 的 通知公告");

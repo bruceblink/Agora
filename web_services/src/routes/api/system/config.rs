@@ -135,7 +135,6 @@ mod tests {
     use common::dto::SystemConfigDetailDTO;
     use infra::SystemConfigNotFoundError;
     use infra::SystemConfigValidationError;
-    use serde_json::json;
 
     #[test]
     fn validate_config_value_rejects_blank_value() {
@@ -153,7 +152,7 @@ mod tests {
         let empty = serde_json::to_value(config_validation_response(
             SystemConfigValidationError::ValueEmpty,
         ))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
         assert_eq!(empty["code"], KEYSTONE_CONFIG_VALUE_EMPTY_CODE);
         assert_eq!(empty["msg"], "参数键值不允许为空");
         assert_eq!(empty["status"], "error");
@@ -163,7 +162,7 @@ mod tests {
         let options = serde_json::to_value(config_validation_response(
             SystemConfigValidationError::ValueNotInOptions,
         ))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
         assert_eq!(options["code"], KEYSTONE_CONFIG_VALUE_OPTIONS_CODE);
         assert_eq!(options["msg"], "参数键值不存在列表中");
         assert_eq!(options["status"], "error");
@@ -174,7 +173,7 @@ mod tests {
     #[test]
     fn missing_config_detail_matches_keystone_empty_success() {
         let value = serde_json::to_value(ApiResponse::ok(SystemConfigDetailDTO::empty()))
-            .unwrap_or_else(|_| json!(null));
+            .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], 0);
         assert_eq!(value["msg"], "操作成功");
@@ -189,7 +188,7 @@ mod tests {
         let value = serde_json::to_value(config_not_found_response(&SystemConfigNotFoundError {
             config_id: 42,
         }))
-        .unwrap_or_else(|_| json!(null));
+        .unwrap_or(serde_json::Value::Null);
 
         assert_eq!(value["code"], KEYSTONE_OBJECT_NOT_FOUND_CODE);
         assert_eq!(value["msg"], "找不到ID为 42 的 参数配置");
